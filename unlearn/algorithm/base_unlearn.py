@@ -415,7 +415,7 @@ if __name__ == "__main__":
     trainer.train()
 
     if args.lora:
-        model = model.merge_and_unload()
+        model = model.merge_and_unload() # type: ignore
 
     if args.save_name:
         if "models/" in args.model_name:

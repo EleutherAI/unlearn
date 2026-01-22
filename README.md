@@ -48,11 +48,11 @@ python -m bergson.bergson.unlearn.create_unlearn_data
 2. Train lens
 
 ```bash
-torchrun --nproc_per_node=8 bergson/tuned_lens/train.py --batch_size 4 --gradient_accumulation_steps 1 --upload_to_hf True --hf_repo_id 'EleutherAI/deep-ignorance-unfiltered-lens'
+torchrun --nproc_per_node=8 bergson/unlearn/algorithm/tuned_lens/train.py --batch_size 4 --gradient_accumulation_steps 1 --upload_to_hf True --hf_repo_id 'EleutherAI/deep-ignorance-unfiltered-lens'
 ```
 
 3. Run tuned lens unlearning
 
 ```bash
-python -m bergson.unlearn.lens_unlearn --lens_path runs/tuned_lens/final
+python -m bergson.unlearn.algorithm.lens_unlearn --lens_path runs/tuned_lens/final
 ```
