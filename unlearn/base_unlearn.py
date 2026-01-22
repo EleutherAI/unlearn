@@ -3,12 +3,12 @@
 
 import argparse
 import os
-from typing import Any, Callable, List, Tuple, Union
+from typing import Dict
 
 import torch
+from torch import nn
 from datasets import concatenate_datasets, load_dataset
 from peft import LoraConfig, get_peft_model
-from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import Trainer, TrainingArguments
 from transformers.modeling_utils import unwrap_model
@@ -31,7 +31,8 @@ from unlearn.cas.utils import (
     refusal_compliance_tokenize_function,
     wikitext_tokenize_function,
 )
-from unlearn.utils.worker_utils import get_model_and_tokenizer, unwrap_model
+from unlearn.utils.worker_utils import get_model_and_tokenizer
+from unlearn.hook import ActivationCapture
 
 
 class UnlearningDataset(Dataset):
@@ -51,88 +52,6 @@ class UnlearningDataset(Dataset):
             "input_ids": self.interleaved_dataset["input_ids"][idx],
             "attention_mask": self.interleaved_dataset["attention_mask"][idx],
         }
-
-
-class CustomHook(nn.Module):
-    def __init__(self, module, hook_fn):
-        super().__init__()
-        self.module = module
-        self.hook_fn = hook_fn
-        self.enabled = True
-
-    def forward(self, *args, **kwargs):
-        if self.enabled:
-            return self.hook_fn(self.module(*args, **kwargs))
-        else:
-            return self.module(*args, **kwargs)
-
-
-def _remove_hook(parent, target):
-    for name, module in parent.named_children():
-        if name == target:
-            setattr(parent, name, module.module)
-            return
-
-
-def insert_hook(parent, target, hook_fn):
-    hook = None
-    for name, module in parent.named_children():
-        if name == target and hook is None:
-            hook = CustomHook(module, hook_fn)
-            setattr(parent, name, hook)
-        elif name == target and hook is not None:
-            _remove_hook(parent, target)
-            raise ValueError(
-                f"Multiple modules with name {target} found, removed hooks"
-            )
-
-    if hook is None:
-        raise ValueError(f"No module with name {target} found")
-
-    return hook
-
-
-def remove_hook(parent, target):
-    is_removed = False
-    for name, module in parent.named_children():
-        if name == target and isinstance(module, CustomHook):
-            setattr(parent, name, module.module)
-            is_removed = True
-        elif name == target and not isinstance(module, CustomHook):
-            raise ValueError(f"Module {target} is not a hook")
-        elif name == target:
-            raise ValueError(f"FATAL: Multiple modules with name {target} found")
-
-    if not is_removed:
-        raise ValueError(f"No module with name {target} found")
-
-
-def clear_hooks(model):
-    for name, module in model.named_children():
-        if isinstance(module, CustomHook):
-            setattr(model, name, module.module)
-            clear_hooks(module.module)
-        else:
-            clear_hooks(module)
-
-
-def add_hooks(
-    model: torch.nn.Module,
-    create_adversary: Callable[[Union[Tuple[int, str], Tuple[str, str]]], Any],
-    adversary_locations: Union[List[Tuple[int, str]], List[Tuple[str, str]]],
-):
-    adversaries = []
-    hooks = []
-
-    if len(adversary_locations) == 0:
-        raise ValueError("No hook points provided")
-
-    for layer, subcomponent in adversary_locations:
-        parent = model.get_submodule(layer)
-        adversaries.append(create_adversary((layer, subcomponent)))
-        hooks.append(insert_hook(parent, subcomponent, adversaries[-1]))
-
-    return adversaries, hooks
 
 
 class UnlearningTrainer(Trainer):
@@ -161,6 +80,74 @@ class UnlearningTrainer(Trainer):
         self.retain_coef = self.run_args.retain_coef
         self.remove_coef = self.run_args.remove_coef
         self.trainer_tokenizer = tokenizer
+
+        # --- Resolve Layer Names for Hooks ---
+        # We need to map integer indices (e.g., 5) to module names (e.g., "model.layers.5")
+        self.layer_id_to_name = self._resolve_layer_names(model, lora_target_layers)
+        self.target_module_names = list(self.layer_id_to_name.values())
+
+    def _resolve_layer_names(self, model, layer_indices) -> Dict[int, str]:
+        """
+        Dynamically finds the module names corresponding to the requested layer indices.
+        Handles PEFT wrapping and different architectures (OLMo, Llama, etc.).
+        """
+        unwrapped = unwrap_model(model)
+        
+        # Navigate through PEFT/DDP wrappers to find the base transformer
+        base = unwrapped
+        if hasattr(base, "base_model"):
+            base = base.base_model
+        if hasattr(base, "model"):
+            base = base.model
+            
+        # Identify the list of layers (e.g., 'layers', 'blocks', 'h')
+        layer_list_name = None
+        for name, module in base.named_modules():
+            if isinstance(module, nn.ModuleList) and len(module) > 0:
+                # Heuristic: usually the longest ModuleList is the transformer blocks
+                # and contains 'layers' or 'blocks' in the name
+                if "layers" in name or "blocks" in name or "h" in name:
+                    layer_list_name = name
+                    break
+        
+        if not layer_list_name:
+            # Fallback for OLMo specific if naming is tricky
+            if hasattr(base, "transformer") and hasattr(base.transformer, "blocks"):
+                layer_list_name = "transformer.blocks"
+            elif hasattr(base, "layers"):
+                layer_list_name = "layers"
+            else:
+                raise ValueError("Could not automatically locate transformer layer list.")
+
+        # Construct full names relative to the unwrapped model
+        # Note: named_modules() on the full model will include prefixes.
+        # We scan the full unwrapped model to match the exact string for the hook.
+        
+        mapping = {}
+        # We need the prefix required to reach 'base' from 'unwrapped'
+        # To do this safely, we just iterate the full unwrapped model and find the matching suffix.
+        
+        found_count = 0
+        target_indices = set(layer_indices)
+        
+        for name, module in unwrapped.named_modules():
+            # Check if this module is one of the layers we want
+            # The name usually ends in "{layer_list_name}.{index}"
+            if layer_list_name in name:
+                try:
+                    # Extract index from end of string (e.g., "model.layers.10" -> 10)
+                    parts = name.split(".")
+                    idx = int(parts[-1])
+                    if idx in target_indices:
+                        mapping[idx] = name
+                        found_count += 1
+                except ValueError:
+                    continue
+        
+        if len(mapping) != len(target_indices):
+            print(f"Warning: requested {len(target_indices)} layers, but found {len(mapping)}.")
+            
+        return mapping
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -191,14 +178,8 @@ class RRTrainer(UnlearningTrainer):
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        # 1. SAFELY UNWRAP MODEL
-        # This works for both DDP (returns inner model) and Single GPU
-        # (returns model as-is). We need this to access .disable_adapter()
-        # and specific layers.
         unwrapped_model = unwrap_model(model)
 
-        # Determine device from inputs (safest way in DDP)
-        # If inputs aren't on device yet, fall back to model device
         target_device = (
             inputs["input_ids"].device
             if hasattr(inputs["input_ids"], "device")
@@ -214,24 +195,20 @@ class RRTrainer(UnlearningTrainer):
             target_device
         )
 
-        # ==== Forward Inputs ====
-        module = "hidden_states"
+        # ==== Inputs ====
         retain_inputs_dict = dict(
             input_ids=retain_input_ids,
             attention_mask=retain_attention_mask,
-            output_hidden_states=True,
+            output_hidden_states=False, 
         )
         cb_inputs_dict = dict(
             input_ids=circuit_breaker_input_ids,
             attention_mask=circuit_breaker_attention_mask,
-            output_hidden_states=True,
+            output_hidden_states=False,
         )
 
         # ===== Step Coeff ====
-        # Recalculate global batch size for scheduling to be accurate in DDP
         world_size = int(os.environ.get("WORLD_SIZE", 1))
-        # Note: self.run_args.pdbs is per-device.
-
         scheduled_coeff = min(
             [
                 1.0,
@@ -244,60 +221,79 @@ class RRTrainer(UnlearningTrainer):
         retain_coeff = self.retain_coef * scheduled_coeff
         circuit_breaker_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
 
-        # Optimization: Broadcasting masks (Batch, Seq) -> (1, Batch, Seq, 1)
         broadcast_retain_mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
         broadcast_cb_mask = circuit_breaker_attention_mask.unsqueeze(0).unsqueeze(-1)
 
-        # Use unwrapped_model for context manager
-        # (DDP wrapper doesn't have disable_adapter)
+        # Initialize Hook Manager
+        # We use unwrapped_model here to ensure names match what we resolved in __init__
+        capturer = ActivationCapture(unwrapped_model, self.target_module_names)
+
+        # --- Forward Pass 1: Reference (No Adapter) ---
         with unwrapped_model.disable_adapter():
             unwrapped_model.eval()
+            capturer.register() # Attach hooks
+            
             with torch.no_grad():
                 ### Retain control
                 if retain_coeff > 0:
-                    orig_retain_outputs = unwrapped_model(**retain_inputs_dict)[module]
-                    orig_retain_hidden = torch.stack(orig_retain_outputs).detach()
+                    unwrapped_model(**retain_inputs_dict)
+                    # Extract and Stack
+                    # Logic: Map the requested layer IDs -> Get Name -> Get Tensor
+                    orig_retain_hidden = torch.stack([
+                        capturer.activations[self.layer_id_to_name[l]].detach()
+                        for l in self.lora_target_layers
+                    ])
                     orig_retain_hidden *= broadcast_retain_mask
-                    del orig_retain_outputs
+                
+                # Clear activations to free memory before next pass, but keep hooks if needed
+                # Actually simpler to just capture both if memory allows, but separating is safer
+                capturer.activations = {} 
 
                 ### Circuit Breaker control
                 if circuit_breaker_coeff > 0:
-                    circuit_breaker_outputs = unwrapped_model(**cb_inputs_dict)[module]
-                    circuit_breaker_hidden = torch.stack(
-                        [
-                            circuit_breaker_outputs[l].detach()
-                            for l in self.lora_target_layers
-                        ]
-                    )
-                    del circuit_breaker_outputs
+                    unwrapped_model(**cb_inputs_dict)
+                    circuit_breaker_hidden = torch.stack([
+                        capturer.activations[self.layer_id_to_name[l]].detach()
+                        for l in self.lora_target_layers
+                    ])
+            
+            capturer.remove() # Remove hooks
 
         unwrapped_model.train()
 
+        # --- Forward Pass 2: Training (With Adapter) ---
+        
+        # Re-register hooks for the training pass
+        capturer.register()
+
         ### Retain control
         if retain_coeff > 0:
-            # We use unwrapped_model here to access specific hidden states.
-            # DDP usually requires using 'model' to sync gradients, but since
-            # we are effectively doing a manual loss calculation on sub-components
-            # and Accelerate/Trainer handles the backward pass sync, this is safe.
-            # If you see hanging, switch these forward passes to use 'model'
-            # (but you lose direct access to [module] output structure if wrapped).
-            lora_retain_outputs = unwrapped_model(**retain_inputs_dict)[module]
-            lora_retain_hidden = (
-                torch.stack(lora_retain_outputs) * broadcast_retain_mask
-            )
+            unwrapped_model(**retain_inputs_dict)
+            
+            lora_retain_hidden = torch.stack([
+                capturer.activations[self.layer_id_to_name[l]]
+                for l in self.lora_target_layers
+            ])
+            lora_retain_hidden = lora_retain_hidden * broadcast_retain_mask
+            
             retain_loss = torch.norm(
                 lora_retain_hidden - orig_retain_hidden, dim=-1, p=2, dtype=torch.float
             ).nanmean()
+            
+            capturer.activations = {} # Clear for next input
         else:
             retain_loss = 0
 
         ### Circuit Breaker control
         if circuit_breaker_coeff > 0:
-            lora_circuit_breaker_outputs = unwrapped_model(**cb_inputs_dict)[module]
-            lora_circuit_breaker_hidden = torch.stack(
-                [lora_circuit_breaker_outputs[l] for l in self.lora_target_layers]
-            )
+            unwrapped_model(**cb_inputs_dict)
+            
+            lora_circuit_breaker_hidden = torch.stack([
+                capturer.activations[self.layer_id_to_name[l]]
+                for l in self.lora_target_layers
+            ])
 
+            # Normalize
             normalized_lora_circuit_breaker_outputs = lora_circuit_breaker_hidden / (
                 torch.norm(
                     lora_circuit_breaker_hidden, dim=-1, keepdim=True, dtype=torch.float
@@ -320,11 +316,10 @@ class RRTrainer(UnlearningTrainer):
             )
         else:
             circuit_breaker_loss = 0
+            
+        capturer.remove() # Clean up
 
         loss = retain_coeff * retain_loss + circuit_breaker_coeff * circuit_breaker_loss
-
-        if self.run_args.alg == "rr-lat":
-            clear_hooks(unwrapped_model)
 
         if (
             self.current_training_step % 32 == 0
@@ -336,8 +331,6 @@ class RRTrainer(UnlearningTrainer):
                 f"|| cb_loss: {circuit_breaker_loss:.4f}"
             )
 
-        # Optimization: Moved heavy eval out of loop
-
         self.current_training_step += 1
         return (loss,) if return_outputs else loss
 
@@ -345,7 +338,6 @@ class RRTrainer(UnlearningTrainer):
 if __name__ == "__main__":
     assert torch.cuda.is_available(), "CUDA is not available"
 
-    # Optimization: Utilize half of the CPU cores for dataset mapping
     NUM_PROC = os.cpu_count() // 2
 
     parser = argparse.ArgumentParser()
@@ -437,7 +429,6 @@ if __name__ == "__main__":
         else int(args.num_train_examples * (1 + args.corrupt_ratio))
     )
     if "smollm2" not in args.model_name:
-        # remove data is wmdp bio remove papers
         bio_remove_dataset = load_dataset(BIO_REMOVE_DS_NAME, token=hf_token)
         bio_remove_dataset = bio_remove_dataset["train"].select(
             range(num_remove_to_take)
@@ -467,7 +458,6 @@ if __name__ == "__main__":
             )
             retain_datasets.append(tokenized_corrupt_dataset)
     else:
-        # remove data is compliances with harmful requests
         remove_refusal_compliance_dataset = load_dataset(
             RETAIN_REFUSAL_COMPLIANCE_DS_NAME
         )["train"]
@@ -531,11 +521,8 @@ if __name__ == "__main__":
         model = get_peft_model(model, lora_config)
     model.enable_input_require_grads()
 
-    # Note: gradient_checkpointing=True saves memory but slows down training (~20-30%).
-    # If you have enough VRAM, set this to False for further speedup.
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     global_batch_size = 32
-    # Ensure accumulation is at least 1
     grad_acc_steps = max(1, global_batch_size // (args.pdbs * world_size))
 
     print(
@@ -554,7 +541,8 @@ if __name__ == "__main__":
         gradient_checkpointing=True,
         fp16=True,
         save_strategy="no",
-        ddp_find_unused_parameters=False,  # Required for Custom loops + PEFT usually
+        # Required for Custom loops 
+        ddp_find_unused_parameters=False,
     )
 
     trainer = RRTrainer(
@@ -563,9 +551,7 @@ if __name__ == "__main__":
 
     model.train()
     trainer.train()
-    clear_hooks(model)
 
-    # Final Evaluation (retained, as this measures the resulting model)
     mmlu_acc = lm_eval_model(
         model,
         task="mmlu",

@@ -19,7 +19,6 @@ dependencies = [
     "torch",
     "transformers",
     "lm-eval",
-    "deepspeed",
     "vllm",
     "bergson",
     "wandb",

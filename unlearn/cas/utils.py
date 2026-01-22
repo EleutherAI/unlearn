@@ -279,7 +279,8 @@ def get_model_responses(model, tokenizer, prompts, max_length=MAX_LENGTH, batch_
     return all_generations
 
 
-client = OpenAI(api_key=OPENAI_KEY)
+# client = OpenAI(api_key=OPENAI_KEY)
+client = None
 
 
 def parser(text):
