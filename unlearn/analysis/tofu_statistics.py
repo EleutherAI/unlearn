@@ -7,15 +7,16 @@ import ast
 import torch
 import pandas as pd
 from huggingface_hub import list_models
-from datasets import load_dataset, Dataset
+from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from transformers import PreTrainedModel
 from torch.utils.data import DataLoader
+from bergson.utils.worker_utils import setup_data_pipeline
+from bergson.config import DataConfig, IndexConfig
 
-from analysis.utils import assert_type
-from analysis.data import setup_data_pipeline, DataConfig
+from unlearn.utils.utils import assert_type
 
 
 # Configuration
@@ -87,9 +88,6 @@ def get_best_model_name(algo_aliases, all_models, filter_pert=False):
         return matching_models[0]
 
     return None
-
-
-import torch
 
 
 def analyze(model: PreTrainedModel, dataset: Dataset, batch_size: int):
@@ -239,6 +237,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument("--run_name", type=str, default="tofu_unlearning_models")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--batch_size", type=int, default=32)
     args = parser.parse_args()
 
     device = "cuda"
@@ -247,8 +246,8 @@ def main():
     norms_plot_file = Path(f"analysis/results/unlearning/{args.run_name}_unlearning_norms.png")
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
+    
     data_config = DataConfig(
-        model=BASE_MODEL,
         dataset=DATASET_NAME,
         subset=FORGET_SPLIT_TAG,
         split=SPLIT,
@@ -257,10 +256,13 @@ def main():
         completion_column="answer",
         conversation_column="",
         truncation=True,
-        max_length=512,
-        batch_size=32,
     )
-    ds = setup_data_pipeline(data_config)
+    index_config = IndexConfig(
+        model=BASE_MODEL,
+        data=data_config,
+        token_batch_size=512,
+    )
+    ds = setup_data_pipeline(index_config)
     ds = assert_type(Dataset, ds)
     ds.set_format(type="torch", columns=["input_ids", "labels"])
 
@@ -289,7 +291,7 @@ def main():
                 ds,
                 model_name,
                 const_data,
-                batch_size=data_config.batch_size,
+                batch_size=args.batch_size,
                 device=device,
             )
             results.append(model_data)

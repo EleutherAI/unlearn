@@ -11,7 +11,6 @@ performing poorly on forget data.
 """
 
 import atexit
-import gc
 import logging
 from dataclasses import dataclass, field
 from functools import partial

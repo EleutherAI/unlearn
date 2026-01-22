@@ -39,7 +39,7 @@ from torch.optim import AdamW
 from unlearn.hook import ActivationCapture
 from unlearn.transfer_rewritten.token_alignment import SnapAlignmentStrategy
 from unlearn.evaluation.eval_callback import EvalCallback
-# from unlearning.unlearn.transfer_rewritten.muon import MuonAdamW
+from unlearn.transfer_rewritten.muon import MuonAdamW
 
 
 location = "google"
@@ -133,23 +133,21 @@ class AlternatingDataset(TorchIterableDataset):
         self._epoch_counter += 1
         print("epoch counter now", self._epoch_counter, flush=True)
 
-    # return os.environ.get("DEBUG", "0") == "1"
 
-
-# def get_optimizer(model, optim_type: str, lr: float):
-#     # Pass all model parameters to the wrapper; it handles the splitting
-#     if optim_type == "muon":
-#         return MuonAdamW(
-#             model.parameters(),
-#             # Use the Moonshot Muon implementation that 
-#             # enables equal lrs
-#             muon_lr=lr,
-#             adam_lr=lr,
-#         )
-#     elif optim_type == "adamw":
-#         return AdamW(model.parameters(), lr=lr)
-#     else:
-#         raise ValueError(f"Invalid optimizer type: {optim_type}")
+def get_optimizer(model, optim_type: str, lr: float):
+    # Pass all model parameters to the wrapper; it handles the splitting
+    if optim_type == "muon":
+        return MuonAdamW(
+            model.parameters(),
+            # Use the Moonshot Muon implementation that 
+            # enables equal lrs
+            muon_lr=lr,
+            adam_lr=lr,
+        )
+    elif optim_type == "adamw":
+        return AdamW(model.parameters(), lr=lr)
+    else:
+        raise ValueError(f"Invalid optimizer type: {optim_type}")
 
 
 class AlternatingDistillationTrainer(Trainer):

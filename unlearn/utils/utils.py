@@ -1,11 +1,10 @@
-import hashlib
 import os
 import random
-from typing import Any, Literal, Type, TypeVar, cast
+from typing import Any, Type, TypeVar, cast
 
 import numpy as np
 import torch
-from torch import Tensor, nn
+from torch import nn
 from transformers import PreTrainedModel
 
 T = TypeVar("T")
