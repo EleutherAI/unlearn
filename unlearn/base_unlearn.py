@@ -26,8 +26,6 @@ from unlearn.cas.utils import (
     cb_tokenize_function,
     hf_token,
     incompetent_compliance_tokenize_function,
-    jailbreak_eval_model,
-    lm_eval_model,
     refusal_compliance_tokenize_function,
     wikitext_tokenize_function,
 )
@@ -351,8 +349,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--corrupt_ds", type=str, default="rewritten", choices=["rewritten", "shuffled"]
     )
-    parser.add_argument("--wmdp_eval_limit", type=int, default=None)
-    parser.add_argument("--mmlu_agieval_limit", type=int, default=None)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--pdbs", type=int, default=None)
     parser.add_argument(
@@ -555,30 +551,6 @@ if __name__ == "__main__":
 
     model.train()
     trainer.train()
-
-    mmlu_acc = lm_eval_model(
-        model,
-        task="mmlu",
-        limit=args.mmlu_agieval_limit,
-        revision=args.revision,
-        tokenizer=tokenizer,
-    )
-    if "smollm2" not in args.model_name:
-        wmdp_acc = lm_eval_model(
-            model,
-            task="wmdp_bio_robust",
-            limit=args.wmdp_eval_limit,
-            revision=args.revision,
-            tokenizer=tokenizer,
-        )
-        print(f"***\nFinal wmdp_acc: {wmdp_acc}, final mmlu_acc {mmlu_acc}\n***")
-    else:
-        jailbreak_score = jailbreak_eval_model(
-            model, tokenizer, num_examples=500, pfx=None, num_fs=0
-        )
-        print(
-            f"***\nFinal jailbreak_score: {jailbreak_score}, final mmlu_acc {mmlu_acc}\n***"
-        )
 
     if args.lora:
         model = model.merge_and_unload()
