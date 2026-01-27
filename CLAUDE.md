@@ -28,7 +28,7 @@ Don't save datasetes to a directory that is not in the gitignore.
 
 When you follow project conventions don't leave a comment saying (following project conventions) or similar drivel. More broadly, don't centre yourself or your decisions in the codebase, and only leave comments that are useful to other users.
 
-### Tests & Evals
+### Tests, Evals, and Hyperparameters
 
 Mark tests requiring GPUs with `@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")`.
 
@@ -49,10 +49,12 @@ When you run the LM eval harness ensure you use all available GPUs. You may need
 
 When you hyperparameter tune don't add more training steps without permission.
 
-When you hyperparameter tune add the settings you test and their results to a markdown file in a experiment_logs directory that you commit regularly. Be concise. Add the settings first then result when it comes in.
+When you hyperparameter tune add the settings you test and their results to a markdown file in a experiment_logs directory that you commit regularly. Be concise. Add the settings first then result when it comes in. Also add the number of training steps and the final training losses as columns in your table (each available separately logged loss term).
 
 ### Environment Setup
 
 If you use need to use a venv, create and/or activate it with `python3 -m venv .venv && source .venv/bin/activate`.
 
-You can pull secrets from .env.
+## Slurm cluster
+
+When installing on a slurm cluster do it on a node with `srun pip install -e .` to prevent CPU-only versions of packages from being installed.

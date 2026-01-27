@@ -15,9 +15,10 @@ Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 
 ## Results
 
-| remove_coef | orth_coef | WMDP (lower=better) | MMLU (higher=better) | Job ID  | Notes |
-|-------------|-----------|---------------------|----------------------|---------|-------|
-| 15          | 5         | pending             | pending              | 2018391 |       |
-| 23          | 10        | pending             | pending              | 2018392 |       |
-| 30          | 15        | pending             | pending              | 2018393 |       |
-| 40          | 20        | pending             | pending              | 2018394 |       |
+| remove_coef | orth_coef | steps | WMDP | MMLU | retain_loss | cb_loss | orth_loss | Notes |
+|-------------|-----------|-------|------|------|-------------|---------|-----------|-------|
+| 15          | 5         | 32    | -    | -    | -           | -       | -         | Not trained |
+| 23          | 10        | 32    | -    | -    | -           | -       | -         | Model incomplete |
+| 30          | 15        | 32    | 26.55% | 35.14% | 4.30      | 0.18    | 0.99      | |
+| 30          | 15        | 512   | pending | pending | -       | -       | -         | Job 2018586 |
+| 40          | 20        | 32    | 26.63% | 35.39% | -         | -       | -         | Log truncated |

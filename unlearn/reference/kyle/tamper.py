@@ -178,20 +178,18 @@ if __name__ == "__main__":
     parser.add_argument("--jailbreak_eval_limit", type=int, default=200)
     parser.add_argument("--eval_every", type=int, default=-1)
     parser.add_argument("--mmlu_agieval_limit", type=int, default=None)
-    parser.add_argument("--include_bio_retain", type=bool, default=False)
-    parser.add_argument("--include_bio_remove", type=bool, default=False)
-    parser.add_argument("--include_bio_filtered_docs", type=bool, default=False)
-    parser.add_argument("--include_chat_retain", type=bool, default=False)
-    parser.add_argument("--include_text_retain", type=bool, default=False)
-    parser.add_argument("--include_refusal_retain", type=bool, default=False)
-    parser.add_argument("--include_compliance_remove", type=bool, default=False)
-    parser.add_argument(
-        "--include_incompetent_compliance_retain", type=bool, default=False
-    )
-    parser.add_argument("--include_corrupt_rewritten", type=bool, default=False)
-    parser.add_argument("--include_corrupt_shuffled", type=bool, default=False)
-    parser.add_argument("--include_corrupt_deepfried", type=bool, default=False)
-    parser.add_argument("--lora", type=bool, default=False)
+    parser.add_argument("--include_bio_retain", action="store_true")
+    parser.add_argument("--include_bio_remove", action="store_true")
+    parser.add_argument("--include_bio_filtered_docs", action="store_true")
+    parser.add_argument("--include_chat_retain", action="store_true")
+    parser.add_argument("--include_text_retain", action="store_true")
+    parser.add_argument("--include_refusal_retain", action="store_true")
+    parser.add_argument("--include_compliance_remove", action="store_true")
+    parser.add_argument("--include_incompetent_compliance_retain", action="store_true")
+    parser.add_argument("--include_corrupt_rewritten", action="store_true")
+    parser.add_argument("--include_corrupt_shuffled", action="store_true")
+    parser.add_argument("--include_corrupt_deepfried", action="store_true")
+    parser.add_argument("--lora", action="store_true")
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--lr_warmup", type=int, default=100)
     parser.add_argument("--epochs", type=int, default=1)
@@ -531,6 +529,7 @@ if __name__ == "__main__":
     )
 
     # Effective Batch Size: 2048 * 16
+    report_to = ["wandb"] if args.wandb_mode != "disabled" else []
     training_args = TrainingArguments(
         output_dir=checkpoint_dir if args.save_checkpoint else "./tampering_results",
         learning_rate=args.lr,
@@ -548,8 +547,8 @@ if __name__ == "__main__":
         warmup_steps=args.lr_warmup,  # Warmup steps for learning rate scheduler
         logging_strategy="steps",  # Enable logging during training
         logging_steps=1,
-        report_to=["wandb"],  # <— W&B integration
-        run_name=args.wandb_run_name,  # <— W&B run name (optional)
+        report_to=report_to,
+        run_name=args.wandb_run_name,
     )
 
     trainer = Trainer(
