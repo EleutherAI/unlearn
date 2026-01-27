@@ -9,6 +9,12 @@
 - **Eval every**: 50 steps
 - **Dataset**: `Unlearning/WMDP-Bio-Remove-Dataset`
 
+## Baseline
+
+| Model | WMDP Bio |
+|-------|----------|
+| Original model (before unlearning) | 42.97% |
+
 ## WMDP Bio Accuracy Over Time
 
 | Step | WMDP Bio Acc |

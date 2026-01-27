@@ -10,13 +10,12 @@
 - `lr`: 1e-3
 - `layers`: [5, 10, 15, 20, 25, 30]
 
-## Baseline (Source Checkpoint)
-
-The source activations come from `EleutherAI/deep-ignorance-pretraining-stage-unfiltered @ global_step38144`:
+## Baselines
 
 | Model | WMDP Bio | MMLU STEM |
 |-------|----------|-----------|
-| Checkpoint (source) | 24.19% | 27.78% |
+| Target model (to unlearn) | 42.97% | 36.85% |
+| Checkpoint (source activations) | 24.19% | 27.78% |
 
 ## Notes
 
@@ -41,7 +40,9 @@ The source activations come from `EleutherAI/deep-ignorance-pretraining-stage-un
 | 2025809 | 2 | 50 | 256 | 0.0737 | 0.8725 | 0.3687 | 0.3454 |
 | 2025810 | 2 | 60 | 256 | 0.0697 | 0.8791 | 0.3606 | 0.3416 |
 | 2026007 | 2 | 100 | 256 | 0.0660 | 0.8843 | 0.3606 | 0.3416 |
-| 2026828 | 2 | 100 | 512 | | | | |
+| 2026828 | 2 | 100 | 512 | 0.0608 | 0.7283 | 0.3260 | 0.3365 |
+| 2028287 | 2 | 100 | 2048 | | | | |
+| 2028225 | 2 | 50 | 2048 | | | | |
 
 ### Batch 1 Observations
 - All configurations produce similar WMDP (0.37-0.40) and MMLU (0.35-0.36)
@@ -60,4 +61,9 @@ The source activations come from `EleutherAI/deep-ignorance-pretraining-stage-un
 - WMDP also drops: 0.40 → 0.36
 - remove=60 and remove=100 give identical results (plateau)
 - retain_kl_loss increases with higher remove_coef (0.06-0.07 vs 0.02-0.05 earlier)
+
+### 2x Steps (retain=2, remove=100, 512 steps)
+- WMDP drops further: 0.3606 → 0.3260 (closer to checkpoint baseline of 0.2419)
+- MMLU drops slightly: 0.3416 → 0.3365 (still above checkpoint baseline of 0.2778)
+- cb_loss drops significantly: 0.8843 → 0.7283 (model moving closer to checkpoint)
 

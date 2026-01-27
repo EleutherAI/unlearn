@@ -4,6 +4,12 @@ Goal: Find boundary between minimal capability impact and noticeable damage.
 
 Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 
+## Baselines
+
+| Model | WMDP Bio | MMLU STEM |
+|-------|----------|-----------|
+| Target model (to unlearn) | 42.97% | 36.85% |
+
 ## Metric Interpretation
 
 **orth_loss**: Average pairwise cosine similarity between forget item representations in each batch. Measures whether forget items collapse to the same direction or remain diverse.
@@ -18,5 +24,7 @@ Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 | 15          | 5         | 32    | -    | -    | -           | -       | -         | Not trained |
 | 23          | 10        | 32    | -    | -    | -           | -       | -         | Model incomplete |
 | 30          | 15        | 32    | 26.55% | 35.14% | 4.30      | 0.18    | 0.99      | |
-| 30          | 15        | 512   | pending | pending | -       | -       | -         | Job 2018596 (resubmitted) |
+| 30          | 15        | 512   | 24.12% | 22.14% | 1.08      | 0.015   | 0.05      | Severe capability damage |
 | 40          | 20        | 32    | 26.63% | 35.39% | -         | -       | -         | Log truncated |
+| 15          | 15        | 512   | pending | pending | -       | -       | -         | Job 2028289 |
+| 30          | 100       | 32    | pending | pending | -       | -       | -         | Job 2028367 |

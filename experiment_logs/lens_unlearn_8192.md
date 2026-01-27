@@ -11,6 +11,12 @@
 - **Target layers**: [5, 10, 15, 20, 25, 30]
 - **Coefficients**: retain_coef=5.0, remove_coef=5.0
 
+## Baselines
+
+| Model | WMDP Bio | MMLU STEM |
+|-------|----------|-----------|
+| Target model (to unlearn) | 42.97% | 36.85% |
+
 ## Training Metrics (Final)
 - **retain_loss**: 1.19
 - **forget_loss**: 1.04

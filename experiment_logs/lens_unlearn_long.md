@@ -14,6 +14,12 @@
 - **Coefficients**: retain_coef=5.0, remove_coef=5.0
 - **Job ID**: 2020296
 
+## Baselines
+
+| Model | WMDP Bio | MMLU STEM |
+|-------|----------|-----------|
+| Target model (to unlearn) | 42.97% | 36.85% |
+
 ## Status
 Running...
 

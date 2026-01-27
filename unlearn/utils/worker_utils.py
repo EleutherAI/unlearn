@@ -9,7 +9,7 @@ from datasets import (
     IterableDataset,
 )
 from peft import PeftConfig, PeftModel, get_peft_model_state_dict
-from torch.distributed.fsdp import fully_shard
+from torch.distributed.fsdp import FullyShardedDataParallel as fully_shard
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 

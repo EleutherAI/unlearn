@@ -16,11 +16,12 @@ Find the boundary between:
 - **LoRA rank**: 16
 - **Target layers**: [5, 10, 15, 20, 25, 30]
 
-## Baseline (Source Checkpoint)
+## Baselines
 
 | Model | WMDP Bio | MMLU STEM |
 |-------|----------|-----------|
-| Checkpoint (source) | 24.19% | 27.78% |
+| Target model (to unlearn) | 42.97% | 36.85% |
+| Checkpoint (source activations) | 24.19% | 27.78% |
 
 ## Results
 
