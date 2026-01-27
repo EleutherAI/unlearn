@@ -40,6 +40,12 @@ Find the boundary between:
 | 5           | 5           | 128   | 0.049          | 4.06    | 89.9%      | 74.6%      |
 | 10          | 5           | 128   | 0.036          | 4.07    | 91.3%      | 74.0%      |
 
+### 10 Epochs (320 steps)
+
+| retain_coef | remove_coef | steps | retain_kl_loss | cb_loss | retain_acc | forget_acc |
+|-------------|-------------|-------|----------------|---------|------------|------------|
+| 5           | 8           | 320   | pending        | pending | pending    | pending    |
+
 ### Training Observations
 - **Longer training (4 epochs) significantly reduces losses**: cb_loss drops from ~6.3 to ~4.1
 - **retain_kl_loss decreases with more training**: 0.15-0.25 → 0.04-0.09
@@ -60,10 +66,10 @@ Find the boundary between:
 
 | retain_coef | remove_coef | steps | WMDP Bio (↓) | MMLU (↑) | Status |
 |-------------|-------------|-------|--------------|----------|--------|
-| 5           | 10          | 32    | pending      | pending  | eval running |
-| 5           | 15          | 32    | pending      | pending  | eval running |
-| 5           | 20          | 32    | pending      | pending  | eval running |
-| 5           | 30          | 32    | pending      | pending  | eval running |
+| 5           | 10          | 32    | 31.11% ± 1.57% | 34.55% ± 0.40% | ✓ |
+| 5           | 15          | 32    | 30.53% ± 1.56% | 33.81% ± 0.40% | ✓ |
+| 5           | 20          | 32    | 30.65% ± 1.56% | 33.68% ± 0.40% | ✓ |
+| 5           | 30          | 32    | 30.07% ± 1.55% | 32.40% ± 0.39% | ✓ |
 
 ### 4 Epochs (128 steps)
 
@@ -100,17 +106,21 @@ Find the boundary between:
 | Low retain (1,3) | 32 | Best (29.84%) | Worst (33.61%) | Aggressive unlearning |
 | Default (5,5) | 32 | Middle (31.68%) | Best (35.73%) | Good balance |
 | High retain (10,5) | 32 | Middle (30.76%) | Good (34.98%) | Strong retain pressure |
+| Very aggressive (5,30) | 32 | 30.07% | 32.40% | MMLU degraded, WMDP Bio not improved |
 
 ### Conclusions
 1. **KL divergence retain loss works** but unlearning incomplete at all settings
-2. **1 epoch is sufficient** - longer training does not improve unlearning (WMDP Bio scores similar)
-3. **retain_coef=1, remove_coef=3 achieves best unlearning** (29.84% WMDP Bio) at cost of MMLU
-4. **Training metrics don't correlate with unlearning quality** - lower cb_loss at 4 epochs doesn't reduce WMDP Bio
-5. **WMDP Bio plateau at ~30%** - all settings converge to 5-7% above random chance
+2. **1 epoch is sufficient** - longer training does not improve unlearning
+3. **retain_coef=1, remove_coef=3 achieves best unlearning** (29.84% WMDP Bio)
+4. **Aggressive remove_coef (15-30) degrades MMLU without improving WMDP Bio**
+   - remove_coef=30: WMDP Bio 30.07% (worse than ret=1,rm=3), MMLU 32.40% (2-3% degraded)
+5. **WMDP Bio plateau at ~30%** - cannot push below with this approach
+6. **Boundary identified**: remove_coef > 15 causes MMLU degradation without unlearning benefit
 
 ### Recommended Settings
 - **For maximum unlearning**: retain_coef=1, remove_coef=3, 1 epoch (WMDP Bio: 29.84%)
 - **For balanced performance**: retain_coef=5, remove_coef=5, 1 epoch (MMLU: 35.73%)
+- **Avoid**: remove_coef > 15 (damages MMLU without improving unlearning)
 - **Avoid longer training** - does not improve unlearning, wastes compute
 
 ## Notes

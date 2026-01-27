@@ -28,11 +28,12 @@
 | 2024176 | 10 | 5 | 256 | 0.0063 | 0.8807 | 0.3952 | 0.3635 |
 | 2024178 | 20 | 10 | 256 | 0.0056 | 0.8725 | 0.3906 | 0.3612 |
 | 2021162 | 10 | 20 | 256 | 0.0171 | 0.8710 | 0.3744 | 0.3612 |
-| 2025807 | 2 | 30 | | | | | |
-| 2025808 | 2 | 40 | | | | | |
-| 2025809 | 2 | 50 | | | | | |
-| 2025810 | 2 | 60 | | | | | |
-| 2026007 | 2 | 100 | | | | | |
+| 2025807 | 2 | 30 | 256 | 0.0593 | 0.8750 | 0.3687 | 0.3457 |
+| 2025808 | 2 | 40 | 256 | 0.0641 | 0.8875 | 0.3629 | 0.3432 |
+| 2025809 | 2 | 50 | 256 | 0.0737 | 0.8725 | 0.3687 | 0.3454 |
+| 2025810 | 2 | 60 | 256 | 0.0697 | 0.8791 | 0.3606 | 0.3416 |
+| 2026007 | 2 | 100 | 256 | 0.0660 | 0.8843 | 0.3606 | 0.3416 |
+| 2026828 | 2 | 100 | 512 | | | | |
 
 ### Batch 1 Observations
 - All configurations produce similar WMDP (0.37-0.40) and MMLU (0.35-0.36)
@@ -45,4 +46,10 @@
 - All configs converge to similar WMDP (0.39-0.41) and MMLU (0.36-0.37)
 - Unlearning effect seems to plateau early; diminishing returns from higher remove_coef
 - Need baseline model performance to understand "no unlearning" case
+
+### Batch 3 Observations (retain=2, varying remove)
+- MMLU drops steadily as remove_coef increases: 0.36 → 0.34
+- WMDP also drops: 0.40 → 0.36
+- remove=60 and remove=100 give identical results (plateau)
+- retain_kl_loss increases with higher remove_coef (0.06-0.07 vs 0.02-0.05 earlier)
 
