@@ -9,7 +9,7 @@ import torch
 from datasets import load_dataset, concatenate_datasets
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from unlearn.algorithm.online_affine_fitter import (
+from unlearn.probe import (
     evaluate_affine_mse,
     save_affine_transforms,
     train_affine_transform,
