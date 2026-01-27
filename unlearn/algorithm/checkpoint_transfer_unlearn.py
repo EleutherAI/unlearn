@@ -195,83 +195,110 @@ class RRTrainer(UnlearningTrainer):
         circuit_breaker_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
 
         # ========================================================================
-        # 1. RETAIN CONTROL (KL divergence on logits or MSE on hidden states)
+        # 1. RETAIN CONTROL (CE, KL divergence, or MSE on hidden states)
         # ========================================================================
         retain_loss = torch.tensor(0.0, device=target_device)
         self._last_retain_argmax = None
 
         if retain_coeff > 0:
-            with unwrapped_model.disable_adapter():
-                unwrapped_model.eval()
-                with torch.no_grad():
-                    orig_retain_outputs = unwrapped_model(**retain_inputs_dict)
-                    orig_retain_logits = orig_retain_outputs.logits
-                    if not self.run_args.retain_kl_loss:
-                        orig_retain_hidden = orig_retain_outputs[module]
+            if self.run_args.retain_ce_loss:
+                # Retain loss: Cross-entropy (standard LM loss)
+                unwrapped_model.train()
+                lora_retain_outputs = unwrapped_model(**retain_inputs_dict)
+                lora_retain_logits = lora_retain_outputs.logits
 
-            unwrapped_model.train()
-            lora_retain_outputs = unwrapped_model(**retain_inputs_dict)
-            lora_retain_logits = lora_retain_outputs.logits
+                # Shift logits and labels for next-token prediction
+                shift_logits = lora_retain_logits[..., :-1, :].contiguous()
+                shift_labels = retain_input_ids[..., 1:].contiguous()
+                shift_mask = retain_attention_mask[..., 1:].contiguous()
 
-            # Argmax matching accuracy for retain
-            if log_now:
-                with torch.no_grad():
-                    orig_preds = torch.argmax(orig_retain_logits, dim=-1)
-                    lora_preds_retain = torch.argmax(lora_retain_logits, dim=-1)
-                    matches_retain = (orig_preds == lora_preds_retain).float()
-                    masked_matches_retain = (
-                        matches_retain * retain_attention_mask.float()
-                    )
-                    valid_tokens_retain = retain_attention_mask.sum().float()
-                    if valid_tokens_retain > 0:
-                        retain_matching_accuracy = (
-                            masked_matches_retain.sum() / valid_tokens_retain
-                        )
-                        self._last_retain_argmax = retain_matching_accuracy.item()
-
-            if self.run_args.retain_kl_loss:
-                # Retain loss: KL divergence on logits
-                orig_log_probs = F.log_softmax(orig_retain_logits.float(), dim=-1)
-                lora_log_probs = F.log_softmax(lora_retain_logits.float(), dim=-1)
-
-                # KL divergence per token
-                kl_per_token = F.kl_div(
-                    lora_log_probs, orig_log_probs, reduction="none", log_target=True
-                ).sum(dim=-1)
+                # Compute per-token CE loss
+                ce_loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
+                ce_per_token = ce_loss_fct(
+                    shift_logits.view(-1, shift_logits.size(-1)),
+                    shift_labels.view(-1),
+                ).view(shift_labels.shape)
 
                 # Mask and average
-                masked_kl = kl_per_token * retain_attention_mask.float()
-                valid_tokens = retain_attention_mask.sum().float()
+                masked_ce = ce_per_token * shift_mask.float()
+                valid_tokens = shift_mask.sum().float()
                 if valid_tokens > 0:
-                    retain_loss = masked_kl.sum() / valid_tokens
+                    retain_loss = masked_ce.sum() / valid_tokens
 
-                del orig_log_probs, lora_log_probs, kl_per_token, masked_kl
+                del shift_logits, shift_labels, ce_per_token, masked_ce
             else:
-                # Retain loss: MSE on hidden states
-                lora_retain_hidden = lora_retain_outputs[module]
-                mask_expanded = retain_attention_mask.unsqueeze(-1).float()
-                valid_tokens = mask_expanded.sum()
+                # Need original model outputs for KL or MSE
+                with unwrapped_model.disable_adapter():
+                    unwrapped_model.eval()
+                    with torch.no_grad():
+                        orig_retain_outputs = unwrapped_model(**retain_inputs_dict)
+                        orig_retain_logits = orig_retain_outputs.logits
+                        if not self.run_args.retain_kl_loss:
+                            orig_retain_hidden = orig_retain_outputs[module]
 
-                mse_accumulator = 0
-                for layer_idx in self.lora_target_layers:
-                    target_act = orig_retain_hidden[layer_idx].detach()
-                    pred_act = lora_retain_hidden[layer_idx]
+                unwrapped_model.train()
+                lora_retain_outputs = unwrapped_model(**retain_inputs_dict)
+                lora_retain_logits = lora_retain_outputs.logits
 
-                    target_masked = (target_act * mask_expanded).float()
-                    pred_masked = (pred_act * mask_expanded).float()
+                # Argmax matching accuracy for retain
+                if log_now:
+                    with torch.no_grad():
+                        orig_preds = torch.argmax(orig_retain_logits, dim=-1)
+                        lora_preds_retain = torch.argmax(lora_retain_logits, dim=-1)
+                        matches_retain = (orig_preds == lora_preds_retain).float()
+                        masked_matches_retain = (
+                            matches_retain * retain_attention_mask.float()
+                        )
+                        valid_tokens_retain = retain_attention_mask.sum().float()
+                        if valid_tokens_retain > 0:
+                            retain_matching_accuracy = (
+                                masked_matches_retain.sum() / valid_tokens_retain
+                            )
+                            self._last_retain_argmax = retain_matching_accuracy.item()
 
-                    layer_mse = F.mse_loss(target_masked, pred_masked, reduction="none")
-                    mse_per_token = layer_mse.mean(dim=-1)
-                    masked_loss = mse_per_token * mask_expanded.squeeze(-1)
-                    layer_loss_sum = masked_loss.sum()
+                if self.run_args.retain_kl_loss:
+                    # Retain loss: KL divergence on logits
+                    orig_log_probs = F.log_softmax(orig_retain_logits.float(), dim=-1)
+                    lora_log_probs = F.log_softmax(lora_retain_logits.float(), dim=-1)
 
+                    # KL divergence per token
+                    kl_per_token = F.kl_div(
+                        lora_log_probs, orig_log_probs, reduction="none", log_target=True
+                    ).sum(dim=-1)
+
+                    # Mask and average
+                    masked_kl = kl_per_token * retain_attention_mask.float()
+                    valid_tokens = retain_attention_mask.sum().float()
                     if valid_tokens > 0:
-                        mse_accumulator += layer_loss_sum / valid_tokens
+                        retain_loss = masked_kl.sum() / valid_tokens
 
-                    del target_act, pred_act, layer_mse, mse_per_token
+                    del orig_log_probs, lora_log_probs, kl_per_token, masked_kl
+                else:
+                    # Retain loss: MSE on hidden states
+                    lora_retain_hidden = lora_retain_outputs[module]
+                    mask_expanded = retain_attention_mask.unsqueeze(-1).float()
+                    valid_tokens = mask_expanded.sum()
 
-                retain_loss = mse_accumulator / len(self.lora_target_layers)
-                del orig_retain_hidden, lora_retain_hidden
+                    mse_accumulator = 0
+                    for layer_idx in self.lora_target_layers:
+                        target_act = orig_retain_hidden[layer_idx].detach()
+                        pred_act = lora_retain_hidden[layer_idx]
+
+                        target_masked = (target_act * mask_expanded).float()
+                        pred_masked = (pred_act * mask_expanded).float()
+
+                        layer_mse = F.mse_loss(target_masked, pred_masked, reduction="none")
+                        mse_per_token = layer_mse.mean(dim=-1)
+                        masked_loss = mse_per_token * mask_expanded.squeeze(-1)
+                        layer_loss_sum = masked_loss.sum()
+
+                        if valid_tokens > 0:
+                            mse_accumulator += layer_loss_sum / valid_tokens
+
+                        del target_act, pred_act, layer_mse, mse_per_token
+
+                    retain_loss = mse_accumulator / len(self.lora_target_layers)
+                    del orig_retain_hidden, lora_retain_hidden
 
             gc.collect()
 
@@ -398,8 +425,9 @@ class RRTrainer(UnlearningTrainer):
                 f"retain_coeff: {retain_coeff:.4f} || "
                 f"cb_coeff: {circuit_breaker_coeff:.4f}"
             )
+            retain_type = "ce" if self.run_args.retain_ce_loss else ("kl" if self.run_args.retain_kl_loss else "mse")
             print(
-                f"retain_kl_loss: {retain_loss_val:.4f} || cb_loss: {cb_loss_val:.4f}"
+                f"retain_loss ({retain_type}): {retain_loss_val:.4f} || cb_loss: {cb_loss_val:.4f}"
             )
             if self._last_retain_argmax is not None:
                 print(f"retain_argmax_accuracy: {self._last_retain_argmax:.4f}")
@@ -520,10 +548,20 @@ if __name__ == "__main__":
         help="Use KL divergence on outputs for retain loss (default: True). Use --no_retain_kl_loss for MSE on hidden states.",
     )
     parser.add_argument(
+        "--retain_ce_loss",
+        action="store_true",
+        help="Use cross-entropy loss on retain data (standard LM loss). Overrides --retain_kl_loss.",
+    )
+    parser.add_argument(
         "--epochs",
         type=int,
         default=1,
         help="Number of training epochs (default: 1)",
+    )
+    parser.add_argument(
+        "--lr_warmup",
+        action="store_true",
+        help="Enable learning rate warmup of 10 steps (default: off)",
     )
 
     args = parser.parse_args()
@@ -690,6 +728,7 @@ if __name__ == "__main__":
         fp16=True,
         save_strategy="no",
         ddp_find_unused_parameters=False,  # Required for Custom loops + PEFT usually
+        warmup_steps=10 if args.lr_warmup else 0,
     )
 
     trainer = RRTrainer(

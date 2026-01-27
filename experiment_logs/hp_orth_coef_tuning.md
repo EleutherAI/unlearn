@@ -26,5 +26,6 @@ Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 | 30          | 15        | 32    | 26.55% | 35.14% | 4.30      | 0.18    | 0.99      | |
 | 30          | 15        | 512   | 24.12% | 22.14% | 1.08      | 0.015   | 0.05      | Severe capability damage |
 | 40          | 20        | 32    | 26.63% | 35.39% | -         | -       | -         | Log truncated |
-| 15          | 15        | 512   | pending | pending | -       | -       | -         | Job 2028289 |
-| 30          | 100       | 32    | pending | pending | -       | -       | -         | Job 2028367 |
+| 15          | 15        | 512   | 23.88% | 25.98% | 1.01      | 0.03    | 0.04      | Capability damage |
+| 30          | 100       | 32    | 39.2% | 36.25% | 3.52      | 0.35    | 0.33      | Preserved capability, worse unlearning |
+| 30          | 100       | 256   | pending | pending | -       | -       | -         | Job 2038086 |

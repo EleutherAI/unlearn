@@ -53,6 +53,18 @@ Find the boundary between:
 |-------------|-------------|----------------|---------|--------------|----------|
 | 5           | 8           | 0.025          | 3.21    | 30.99%       | 34.87%   |
 
+### 100 Epochs (3200 steps)
+
+| retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | MMLU (↑) |
+|-------------|-------------|----------------|---------|--------------|----------|
+| 5           | 8           | 0.022          | 2.44    | pending      | pending  |
+
+### 1000 Epochs (8000 steps, 4x batch size)
+
+| retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | MMLU (↑) |
+|-------------|-------------|----------------|---------|--------------|----------|
+| 5           | 8           | pending        | pending | pending      | pending  |
+
 ### Observations
 - **Longer training significantly reduces losses**: cb_loss drops from ~6.3 (1ep) to ~4.1 (4ep) to ~3.2 (10ep)
 - **retain_kl_loss decreases with more training**: 0.15-0.25 → 0.04-0.09 → 0.025
