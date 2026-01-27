@@ -16,58 +16,104 @@ Find the boundary between:
 - **LoRA rank**: 16
 - **Target layers**: [5, 10, 15, 20, 25, 30]
 
-## Training Metrics (Step 32)
+## Training Metrics
 
-| retain_coef | remove_coef | retain_kl_loss | cb_loss | retain_acc | forget_acc |
-|-------------|-------------|----------------|---------|------------|------------|
-| 1           | 3           | 0.247          | 6.30    | 76.1%      | 71.4%      |
-| 3           | 5           | 0.203          | 6.30    | 78.6%      | 71.5%      |
-| 5           | 5           | 0.156          | 6.31    | 81.1%      | 71.5%      |
-| 10          | 5           | 0.101          | 6.33    | 84.6%      | 71.6%      |
-| 5           | 10          | 0.229          | 6.35    | 77.3%      | 71.1%      |
-| 10          | 10          | 0.169          | 6.36    | 80.4%      | 71.1%      |
+### 1 Epoch (32 steps)
+
+| retain_coef | remove_coef | steps | retain_kl_loss | cb_loss | retain_acc | forget_acc |
+|-------------|-------------|-------|----------------|---------|------------|------------|
+| 1           | 3           | 32    | 0.247          | 6.30    | 76.1%      | 71.4%      |
+| 3           | 5           | 32    | 0.203          | 6.30    | 78.6%      | 71.5%      |
+| 5           | 5           | 32    | 0.156          | 6.31    | 81.1%      | 71.5%      |
+| 10          | 5           | 32    | 0.101          | 6.33    | 84.6%      | 71.6%      |
+| 5           | 10          | 32    | 0.229          | 6.35    | 77.3%      | 71.1%      |
+| 10          | 10          | 32    | 0.169          | 6.36    | 80.4%      | 71.1%      |
+| 5           | 15          | 32    | 0.243          | 6.35    | 76.6%      | 71.2%      |
+| 5           | 20          | 32    | 0.259          | 6.36    | 75.7%      | 71.0%      |
+| 5           | 30          | 32    | 0.272          | 6.51    | 75.5%      | 70.6%      |
+
+### 4 Epochs (128 steps)
+
+| retain_coef | remove_coef | steps | retain_kl_loss | cb_loss | retain_acc | forget_acc |
+|-------------|-------------|-------|----------------|---------|------------|------------|
+| 1           | 3           | 128   | 0.085          | 4.09    | 86.8%      | 74.9%      |
+| 5           | 5           | 128   | 0.049          | 4.06    | 89.9%      | 74.6%      |
+| 10          | 5           | 128   | 0.036          | 4.07    | 91.3%      | 74.0%      |
 
 ### Training Observations
-- Higher `retain_coef` → lower KL loss, higher retain argmax accuracy
-- `remove_coef` has minimal impact on forget_acc (~71% across all configs)
-- Circuit breaker loss stable around 6.30-6.36
+- **Longer training (4 epochs) significantly reduces losses**: cb_loss drops from ~6.3 to ~4.1
+- **retain_kl_loss decreases with more training**: 0.15-0.25 → 0.04-0.09
+- **forget_acc improves with more training**: 71% → 74-75% (closer to checkpoint)
+- **retain_acc improves with more training**: 76-85% → 87-91%
 
 ## Evaluation Results
 
-| retain_coef | remove_coef | WMDP Bio (↓ better) | MMLU (↑ better) | Status |
-|-------------|-------------|---------------------|-----------------|--------|
-| 1           | 3           | 29.84% ± 1.55%      | 33.61% ± 0.40%  | ✓ |
-| 3           | 5           | —                   | —               | not evaluated |
-| 5           | 5           | 31.68% ± 1.58%      | 35.73% ± 0.40%  | ✓ |
-| 10          | 5           | 30.76% ± 1.57%      | 34.98% ± 0.40%  | ✓ |
-| 5           | 10          | —                   | —               | not evaluated |
-| 10          | 10          | —                   | —               | not evaluated |
+### 1 Epoch (32 steps)
+
+| retain_coef | remove_coef | steps | WMDP Bio (↓) | MMLU (↑) | Status |
+|-------------|-------------|-------|--------------|----------|--------|
+| 1           | 3           | 32    | 29.84% ± 1.55% | 33.61% ± 0.40% | ✓ |
+| 5           | 5           | 32    | 31.68% ± 1.58% | 35.73% ± 0.40% | ✓ |
+| 10          | 5           | 32    | 30.76% ± 1.57% | 34.98% ± 0.40% | ✓ |
+
+### Aggressive Unlearning (High remove_coef, 1 epoch)
+
+| retain_coef | remove_coef | steps | WMDP Bio (↓) | MMLU (↑) | Status |
+|-------------|-------------|-------|--------------|----------|--------|
+| 5           | 10          | 32    | pending      | pending  | eval running |
+| 5           | 15          | 32    | pending      | pending  | eval running |
+| 5           | 20          | 32    | pending      | pending  | eval running |
+| 5           | 30          | 32    | pending      | pending  | eval running |
+
+### 4 Epochs (128 steps)
+
+| retain_coef | remove_coef | steps | WMDP Bio (↓) | MMLU (↑) | Status |
+|-------------|-------------|-------|--------------|----------|--------|
+| 1           | 3           | 128   | 30.76% ± 1.57% | 35.33% ± 0.40% | ✓ |
+| 5           | 5           | 128   | 30.88% ± 1.57% | 34.82% ± 0.40% | ✓ |
+| 10          | 5           | 128   | 31.22% ± 1.58% | 35.55% ± 0.40% | ✓ |
 
 ## Key Findings
 
-### Boundary Analysis
+### Boundary Analysis (1 epoch)
 - **WMDP Bio random chance**: ~25%
 - **Achieved WMDP Bio**: 29.84% - 31.68% (incomplete unlearning, ~5-7% above random)
 - **MMLU retention**: 33.61% - 35.73%
 
+### Effect of Training Length
+- 4 epochs reduces circuit breaker loss by ~35% (6.3 → 4.1)
+- Retain accuracy improves by ~10-15% with longer training
+- Forget accuracy increases (models more closely match checkpoint)
+- **However, 4 epochs does NOT improve unlearning** - WMDP Bio scores are similar or slightly worse
+
+### Comparison: 1 Epoch vs 4 Epochs
+
+| Setting | 1 Epoch WMDP Bio | 4 Epoch WMDP Bio | 1 Epoch MMLU | 4 Epoch MMLU |
+|---------|------------------|------------------|--------------|--------------|
+| ret=1, rm=3 | 29.84% | 30.76% (+0.9%) | 33.61% | 35.33% (+1.7%) |
+| ret=5, rm=5 | 31.68% | 30.88% (-0.8%) | 35.73% | 34.82% (-0.9%) |
+| ret=10, rm=5 | 30.76% | 31.22% (+0.5%) | 34.98% | 35.55% (+0.6%) |
+
 ### Trade-offs
-| Setting | WMDP Bio (unlearning) | MMLU (retention) | Notes |
-|---------|----------------------|------------------|-------|
-| Low retain (1,3) | Best (29.84%) | Worst (33.61%) | More aggressive unlearning hurts retention |
-| Default (5,5) | Middle (31.68%) | Best (35.73%) | Good balance |
-| High retain (10,5) | Middle (30.76%) | Good (34.98%) | High retain pressure doesn't improve MMLU much |
+| Setting | Steps | WMDP Bio | MMLU | Notes |
+|---------|-------|----------|------|-------|
+| Low retain (1,3) | 32 | Best (29.84%) | Worst (33.61%) | Aggressive unlearning |
+| Default (5,5) | 32 | Middle (31.68%) | Best (35.73%) | Good balance |
+| High retain (10,5) | 32 | Middle (30.76%) | Good (34.98%) | Strong retain pressure |
 
 ### Conclusions
-1. **KL divergence retain loss works** but unlearning is incomplete (WMDP still 5-7% above random)
-2. **retain_coef=5** appears optimal - best MMLU (35.73%) with reasonable WMDP (31.68%)
-3. **Lower retain_coef** improves unlearning (29.84%) but damages general capability
-4. **remove_coef** has minimal impact on unlearning effectiveness in this range
+1. **KL divergence retain loss works** but unlearning incomplete at all settings
+2. **1 epoch is sufficient** - longer training does not improve unlearning (WMDP Bio scores similar)
+3. **retain_coef=1, remove_coef=3 achieves best unlearning** (29.84% WMDP Bio) at cost of MMLU
+4. **Training metrics don't correlate with unlearning quality** - lower cb_loss at 4 epochs doesn't reduce WMDP Bio
+5. **WMDP Bio plateau at ~30%** - all settings converge to 5-7% above random chance
 
 ### Recommended Settings
-- **For maximum unlearning**: retain_coef=1, remove_coef=3 (WMDP: 29.84%, MMLU: 33.61%)
-- **For balanced performance**: retain_coef=5, remove_coef=5 (WMDP: 31.68%, MMLU: 35.73%)
+- **For maximum unlearning**: retain_coef=1, remove_coef=3, 1 epoch (WMDP Bio: 29.84%)
+- **For balanced performance**: retain_coef=5, remove_coef=5, 1 epoch (MMLU: 35.73%)
+- **Avoid longer training** - does not improve unlearning, wastes compute
 
 ## Notes
-- All models saved to `models/EleutherAI/deep-ignorance-unfiltered_kl_ret{X}_rm{Y}`
-- Training time per config: ~6 minutes with 4x GH200
-- Evaluation time per config: ~15 minutes
+- All models saved to `models/EleutherAI/deep-ignorance-unfiltered_kl_ret{X}_rm{Y}[_ep4]`
+- Training time: ~6 min/epoch with 4x GH200
+- Evaluation time: ~15 minutes per model

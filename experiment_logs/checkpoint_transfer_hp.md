@@ -1,0 +1,48 @@
+# Checkpoint Transfer Hyperparameter Tuning
+
+**Goal:** Find the boundary between unlearning both evals and unlearning neither.
+
+**Fixed settings:**
+- `num_train_examples`: 1024
+- `pdbs`: 4 (per device batch size)
+- `affine`: True (loaded from EleutherAI/affine-checkpoint-transfer)
+- `KL divergence retain`: True
+- `lr`: 1e-3
+- `layers`: [5, 10, 15, 20, 25, 30]
+
+## Notes
+
+- Higher remove_coef = stronger push towards checkpoint activations (more unlearning)
+- Higher retain_coef = stronger KL divergence preservation (less capability loss)
+- Looking for the sweet spot where WMDP drops but MMLU stays high
+
+## Runs
+
+| Job ID | retain_coef | remove_coef | Steps | retain_kl_loss | cb_loss | WMDP Bio | MMLU STEM |
+|--------|-------------|-------------|-------|----------------|---------|----------|-----------|
+| 2021158 | 2 | 5 | 256 | 0.0190 | 0.8912 | 0.3952 | 0.3619 |
+| 2021163 | 2 | 20 | 256 | 0.0481 | 0.8683 | 0.3721 | 0.3524 |
+| 2021160 | 5 | 10 | 256 | 0.0153 | 0.8692 | 0.3744 | 0.3552 |
+| 2024175 | 5 | 2 | 256 | 0.0053 | 0.8858 | 0.3952 | 0.3647 |
+| 2024177 | 5 | 1 | 256 | 0.0031 | 0.8890 | 0.4067 | 0.3619 |
+| 2024176 | 10 | 5 | 256 | 0.0063 | 0.8807 | 0.3952 | 0.3635 |
+| 2024178 | 20 | 10 | 256 | 0.0056 | 0.8725 | 0.3906 | 0.3612 |
+| 2021162 | 10 | 20 | 256 | 0.0171 | 0.8710 | 0.3744 | 0.3612 |
+| 2025807 | 2 | 30 | | | | | |
+| 2025808 | 2 | 40 | | | | | |
+| 2025809 | 2 | 50 | | | | | |
+| 2025810 | 2 | 60 | | | | | |
+| 2026007 | 2 | 100 | | | | | |
+
+### Batch 1 Observations
+- All configurations produce similar WMDP (0.37-0.40) and MMLU (0.35-0.36)
+- Higher remove_coef with low retain_coef (2,20) slightly worse MMLU
+- Need baseline model performance for comparison
+- Need to explore more extreme configs to find boundary
+
+### Batch 2 Observations
+- Even with lowest remove_coef (1), WMDP only rises to 0.4067 (vs 0.39-0.40 for others)
+- All configs converge to similar WMDP (0.39-0.41) and MMLU (0.36-0.37)
+- Unlearning effect seems to plateau early; diminishing returns from higher remove_coef
+- Need baseline model performance to understand "no unlearning" case
+

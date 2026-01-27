@@ -18,6 +18,7 @@ from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import seed_worker
 from unlearn.algorithm.online_affine_fitter import (
     evaluate_affine_mse,
+    load_affine_transforms,
     train_affine_transform,
     upload_affine_transforms_to_hub,
 )
@@ -507,10 +508,22 @@ if __name__ == "__main__":
         help="Make the HuggingFace repo private",
     )
     parser.add_argument(
+        "--load_affine_from_hub",
+        type=str,
+        default=None,
+        help="Load pre-trained affine transforms from HuggingFace repo (e.g., 'EleutherAI/affine-checkpoint-transfer')",
+    )
+    parser.add_argument(
         "--retain_kl_loss",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use KL divergence on outputs for retain loss (default: True). Use --no_retain_kl_loss for MSE on hidden states.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=1,
+        help="Number of training epochs (default: 1)",
     )
 
     args = parser.parse_args()
@@ -584,8 +597,34 @@ if __name__ == "__main__":
     for param in checkpoint_model.parameters():
         param.requires_grad = False
 
-    # Train affine transforms if requested
-    if args.use_affine:
+    # Load or train affine transforms
+    if args.load_affine_from_hub:
+        from huggingface_hub import hf_hub_download
+        import tempfile
+
+        print(f"Loading affine transforms from {args.load_affine_from_hub}...")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            weights_path = hf_hub_download(
+                repo_id=args.load_affine_from_hub,
+                filename="affine_transforms.safetensors",
+                local_dir=tmpdir,
+            )
+            metadata_path = hf_hub_download(
+                repo_id=args.load_affine_from_hub,
+                filename="metadata.json",
+                local_dir=tmpdir,
+            )
+            affine_transforms = load_affine_transforms(tmpdir, device="cuda")
+
+        for idx, transform in affine_transforms.items():
+            affine_transforms[idx] = transform.to(
+                device=model.device if hasattr(model, "device") else "cuda",
+                dtype=torch.float16,
+            )
+            affine_transforms[idx].requires_grad_(False)
+        print(f"Loaded affine transforms for layers: {list(affine_transforms.keys())}")
+
+    elif args.use_affine:
         print("Training affine transforms...")
         affine_transforms = train_affine_transform(
             source_model=checkpoint_model,
@@ -645,7 +684,7 @@ if __name__ == "__main__":
         gradient_accumulation_steps=grad_acc_steps,
         per_device_train_batch_size=args.pdbs,
         per_device_eval_batch_size=args.pdbs,
-        num_train_epochs=1,
+        num_train_epochs=args.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
         fp16=True,

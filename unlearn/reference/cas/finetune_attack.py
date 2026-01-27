@@ -80,13 +80,13 @@ def lm_eval_model(model, task="wmdp_bio", limit=None):
 
 
 def get_wmdp_bio_forget():
-    """Load the WMDP Bio forget dataset. The dataset can be requested at https://huggingface.co/datasets/cais/wmdp-bio-forget-corpus"""
-
-    hf_token = os.getenv("HF_TOKEN")
-    assert (
-        hf_token
-    ), "Please set the HF_TOKEN environment variable with your Hugging Face token to access the WMDP Bio forget dataset. The dataset can be requested at https://huggingface.co/datasets/cais/wmdp-bio-forget-corpus"
-    wmdp_bio_forget = load_dataset("cais/wmdp-bio-forget-corpus")
+    """Load the WMDP Bio forget dataset."""
+    # hf_token = os.getenv("HF_TOKEN")
+    # assert (
+    #     hf_token
+    # ), "Please set the HF_TOKEN environment variable with your Hugging Face token to access the WMDP Bio forget dataset. The dataset can be requested at https://huggingface.co/datasets/cais/wmdp-bio-forget-corpus"
+    # wmdp_bio_forget = load_dataset("cais/wmdp-bio-forget-corpus")
+    wmdp_bio_forget = load_dataset("Unlearning/WMDP-Bio-Remove-Dataset")
     return wmdp_bio_forget
 
 
@@ -240,6 +240,7 @@ if __name__ == "__main__":
         warmup_steps=0,  # can stabilize training, adjust if needed
         logging_strategy="steps",  # Enable logging during training
         logging_steps=100,  # Log every 100 steps
+        report_to=[],  # disable wandb
     )
 
     # If `eval_every` is set, use the SimpleWMDPEvalCallback to evaluate the model on WMDP task every `eval_every` steps

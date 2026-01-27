@@ -276,6 +276,9 @@ if __name__ == "__main__":
         action="store_true",
         help="Skip final evaluation (for faster tuning)",
     )
+    parser.add_argument(
+        "--epochs", type=int, default=1, help="Number of training epochs"
+    )
 
     args = parser.parse_args()
 
@@ -376,7 +379,7 @@ if __name__ == "__main__":
         gradient_accumulation_steps=grad_acc_steps,
         per_device_train_batch_size=args.pdbs,
         per_device_eval_batch_size=args.pdbs,
-        num_train_epochs=1,
+        num_train_epochs=args.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
         bf16=True,
