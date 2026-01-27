@@ -2,7 +2,7 @@
 #SBATCH --job-name=tune-orth-cb
 #SBATCH --nodes=1
 #SBATCH --exclusive
-#SBATCH --gpus-per-node=4
+#SBATCH --gpus-per-node=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=24:00:00
 #SBATCH --output=/home/a6a/lucia.a6a/unlearn/runs/tune-orth-cb-%j.out
@@ -19,23 +19,22 @@ echo "============================================"
 module purge
 module load PrgEnv-cray
 module load cuda/12.6
-module load brics/nccl/2.21.5-1
 
-# Activate conda environment and install CUDA-enabled PyTorch
-source /home/a6a/lucia.a6a/miniforge3/bin/activate pytorch_env
+# Activate conda environment (snake has working CUDA PyTorch)
+source /home/a6a/lucia.a6a/miniforge3/bin/activate snake
 
-# Install PyTorch with CUDA support if not already installed
-pip install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# Install bergson if not already installed
+pip install --quiet bergson
 
-# Install missing dependencies
-pip install --quiet peft lm-eval simple-parsing
-
-# Install bergson (local dependency)
-pip install --quiet -e /home/a6a/lucia.a6a/bergson
+# Install additional deps needed for evals
+pip install --quiet lm-eval
 
 # Install the unlearn package in development mode
 cd /home/a6a/lucia.a6a/unlearn
 pip install --quiet -e .
+
+# Use single GPU to avoid device mismatch issues
+export CUDA_VISIBLE_DEVICES=0
 
 # Compilers and CUDA arch
 export CC=/usr/bin/gcc-12

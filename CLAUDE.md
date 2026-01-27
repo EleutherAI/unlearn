@@ -1,4 +1,6 @@
-Always test your changes by running the appropriate script or CLI command. Never complete a task without testing your changes until the script or CLI command runs without issues for 3 minutes+ (at minimum). If you find an error unrelated to your task, at minimum quote the exact error back to me when you have completed your task and offer to investigate and fix it.
+Always test your changes by running the appropriate script or CLI command. Never complete a task without testing your changes using a script or CLI command. To test, run the script and then frequently monitor the output until it appears to be running without issue, and then check again every 30 seconds until either 3 minutes have passed or multiple iteration loops of the main computation have completed successfully. If you find an error unrelated to your task, at minimum quote the exact error back to me when you have completed your task and offer to investigate and fix it.
+
+When you make a script put it in unlearn/scripts.
 
 ## Project Structure and Conventions
 

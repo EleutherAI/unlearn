@@ -45,10 +45,13 @@ def run_training(
     ]
 
     print(f"Running training command: {' '.join(cmd)}")
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = "0"
     result = subprocess.run(
         cmd,
         cwd=str(PROJECT_ROOT),
         capture_output=False,
+        env=env,
     )
     return result.returncode == 0
 

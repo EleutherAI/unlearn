@@ -21,7 +21,6 @@ dependencies = [
     "lm-eval",
     "bergson",
     "wandb",
-    "vllm",
     "tuned-lens",
     "matplotlib",
 ]

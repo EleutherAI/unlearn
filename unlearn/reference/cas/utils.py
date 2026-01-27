@@ -8,8 +8,6 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 sys.path.append("./lm-evaluation-harness")
-from lm_eval import evaluator
-from lm_eval.models.huggingface import HFLM
 
 # from model_utils import *
 
@@ -127,6 +125,9 @@ def lm_eval_model(
     tokenizer=None,
     revision="main",
 ):
+    from lm_eval import evaluator
+    from lm_eval.models.huggingface import HFLM
+
     model.eval()
     with torch.no_grad():
         hflm_model = HFLM(model, revision=revision, tokenizer=tokenizer)

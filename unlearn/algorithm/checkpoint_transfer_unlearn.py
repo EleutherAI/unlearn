@@ -16,9 +16,14 @@ from transformers import (
 )
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import seed_worker
-from unlearn.online_affine_fitter import train_affine_transform
+from unlearn.algorithm.online_affine_fitter import (
+    evaluate_affine_mse,
+    train_affine_transform,
+    upload_affine_transforms_to_hub,
+)
 
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
+from unlearn.utils.worker_utils import get_model_and_tokenizer
 
 
 def unwrap_model(model):
@@ -189,7 +194,7 @@ class RRTrainer(UnlearningTrainer):
         circuit_breaker_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
 
         # ========================================================================
-        # 1. RETAIN CONTROL (KL divergence on logits)
+        # 1. RETAIN CONTROL (KL divergence on logits or MSE on hidden states)
         # ========================================================================
         retain_loss = torch.tensor(0.0, device=target_device)
         self._last_retain_argmax = None
@@ -198,10 +203,14 @@ class RRTrainer(UnlearningTrainer):
             with unwrapped_model.disable_adapter():
                 unwrapped_model.eval()
                 with torch.no_grad():
-                    orig_retain_logits = unwrapped_model(**retain_inputs_dict).logits
+                    orig_retain_outputs = unwrapped_model(**retain_inputs_dict)
+                    orig_retain_logits = orig_retain_outputs.logits
+                    if not self.run_args.retain_kl_loss:
+                        orig_retain_hidden = orig_retain_outputs[module]
 
             unwrapped_model.train()
-            lora_retain_logits = unwrapped_model(**retain_inputs_dict).logits
+            lora_retain_outputs = unwrapped_model(**retain_inputs_dict)
+            lora_retain_logits = lora_retain_outputs.logits
 
             # Argmax matching accuracy for retain
             if log_now:
@@ -219,22 +228,50 @@ class RRTrainer(UnlearningTrainer):
                         )
                         self._last_retain_argmax = retain_matching_accuracy.item()
 
-            # Retain loss: KL divergence on logits
-            orig_log_probs = F.log_softmax(orig_retain_logits.float(), dim=-1)
-            lora_log_probs = F.log_softmax(lora_retain_logits.float(), dim=-1)
+            if self.run_args.retain_kl_loss:
+                # Retain loss: KL divergence on logits
+                orig_log_probs = F.log_softmax(orig_retain_logits.float(), dim=-1)
+                lora_log_probs = F.log_softmax(lora_retain_logits.float(), dim=-1)
 
-            # KL divergence per token
-            kl_per_token = F.kl_div(
-                lora_log_probs, orig_log_probs, reduction="none", log_target=True
-            ).sum(dim=-1)
+                # KL divergence per token
+                kl_per_token = F.kl_div(
+                    lora_log_probs, orig_log_probs, reduction="none", log_target=True
+                ).sum(dim=-1)
 
-            # Mask and average
-            masked_kl = kl_per_token * retain_attention_mask.float()
-            valid_tokens = retain_attention_mask.sum().float()
-            if valid_tokens > 0:
-                retain_loss = masked_kl.sum() / valid_tokens
+                # Mask and average
+                masked_kl = kl_per_token * retain_attention_mask.float()
+                valid_tokens = retain_attention_mask.sum().float()
+                if valid_tokens > 0:
+                    retain_loss = masked_kl.sum() / valid_tokens
 
-            del orig_log_probs, lora_log_probs, kl_per_token, masked_kl
+                del orig_log_probs, lora_log_probs, kl_per_token, masked_kl
+            else:
+                # Retain loss: MSE on hidden states
+                lora_retain_hidden = lora_retain_outputs[module]
+                mask_expanded = retain_attention_mask.unsqueeze(-1).float()
+                valid_tokens = mask_expanded.sum()
+
+                mse_accumulator = 0
+                for layer_idx in self.lora_target_layers:
+                    target_act = orig_retain_hidden[layer_idx].detach()
+                    pred_act = lora_retain_hidden[layer_idx]
+
+                    target_masked = (target_act * mask_expanded).float()
+                    pred_masked = (pred_act * mask_expanded).float()
+
+                    layer_mse = F.mse_loss(target_masked, pred_masked, reduction="none")
+                    mse_per_token = layer_mse.mean(dim=-1)
+                    masked_loss = mse_per_token * mask_expanded.squeeze(-1)
+                    layer_loss_sum = masked_loss.sum()
+
+                    if valid_tokens > 0:
+                        mse_accumulator += layer_loss_sum / valid_tokens
+
+                    del target_act, pred_act, layer_mse, mse_per_token
+
+                retain_loss = mse_accumulator / len(self.lora_target_layers)
+                del orig_retain_hidden, lora_retain_hidden
+
             gc.collect()
 
         # ========================================================================
@@ -447,6 +484,34 @@ if __name__ == "__main__":
         default=100000,
         help="Number of examples for affine transform training",
     )
+    parser.add_argument(
+        "--eval_affine_mse",
+        action="store_true",
+        help="Evaluate MSE of affine transforms after training",
+    )
+    parser.add_argument(
+        "--affine_eval_examples",
+        type=int,
+        default=10000,
+        help="Number of examples for affine MSE evaluation",
+    )
+    parser.add_argument(
+        "--upload_affine_to_hub",
+        type=str,
+        default=None,
+        help="HuggingFace repo name to upload affine transforms (e.g., 'username/affine-map')",
+    )
+    parser.add_argument(
+        "--affine_hub_private",
+        action="store_true",
+        help="Make the HuggingFace repo private",
+    )
+    parser.add_argument(
+        "--retain_kl_loss",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use KL divergence on outputs for retain loss (default: True). Use --no_retain_kl_loss for MSE on hidden states.",
+    )
 
     args = parser.parse_args()
 
@@ -535,6 +600,33 @@ if __name__ == "__main__":
                 model.device if hasattr(model, "device") else "cuda"
             )
             affine_transforms[idx].requires_grad_(False)
+
+        # Evaluate and optionally upload affine transforms
+        mse_metrics = None
+        if args.eval_affine_mse or args.upload_affine_to_hub:
+            mse_metrics = evaluate_affine_mse(
+                affine_transforms=affine_transforms,
+                source_model=checkpoint_model,
+                target_model=model,
+                dataset=train_dataset,
+                target_layers=args.layers,
+                num_examples=args.affine_eval_examples,
+                device=model.device if hasattr(model, "device") else "cuda",
+            )
+            for layer_key, mse_val in mse_metrics.items():
+                print(f"  {layer_key}: {mse_val:.6f}")
+
+        if args.upload_affine_to_hub:
+            upload_affine_transforms_to_hub(
+                affine_transforms=affine_transforms,
+                repo_id=args.upload_affine_to_hub,
+                mse_metrics=mse_metrics,
+                source_model_name=args.checkpoint_name,
+                target_model_name=args.model_name,
+                alpha=0.01,
+                num_training_examples=args.affine_num_examples,
+                private=args.affine_hub_private,
+            )
 
     # Note: gradient_checkpointing=True saves memory but slows down training (~20-30%).
     # If you have enough VRAM, set this to False for further speedup.
