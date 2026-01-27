@@ -51,12 +51,13 @@ Find the boundary between:
 
 | retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | MMLU (↑) |
 |-------------|-------------|----------------|---------|--------------|----------|
-| 5           | 8           | 0.025          | 3.21    | pending      | pending  |
+| 5           | 8           | 0.025          | 3.21    | 30.99%       | 34.87%   |
 
 ### Observations
-- **Longer training (4 epochs) significantly reduces losses**: cb_loss drops from ~6.3 to ~4.1
-- **retain_kl_loss decreases with more training**: 0.15-0.25 → 0.04-0.09
-- **However, 4 epochs does NOT improve unlearning** - WMDP Bio scores are similar or slightly worse
+- **Longer training significantly reduces losses**: cb_loss drops from ~6.3 (1ep) to ~4.1 (4ep) to ~3.2 (10ep)
+- **retain_kl_loss decreases with more training**: 0.15-0.25 → 0.04-0.09 → 0.025
+- **However, longer training does NOT improve unlearning** - WMDP Bio stays at ~30-31% regardless
+- **10 epochs (320 steps)**: WMDP Bio 30.99%, MMLU 34.87% - no improvement over 1 epoch
 
 ## Key Findings
 
