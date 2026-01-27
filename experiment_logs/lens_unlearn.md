@@ -7,7 +7,6 @@ Unlearning via tuned lens activations - training model to match lens-projected (
 - **Model**: EleutherAI/deep-ignorance-unfiltered
 - **Lens**: EleutherAI/deep-ignorance-unfiltered-lens (HuggingFace)
 - **GPUs**: 4x GH200
-- **LoRA rank**: 16
 - **Target layers**: [5, 10, 15, 20, 25, 30]
 
 ## Baselines
@@ -18,14 +17,14 @@ Unlearning via tuned lens activations - training model to match lens-projected (
 
 ## Results
 
-### AdamW Optimizer
+### LoRA + AdamW Optimizer
 
-| examples | epochs | steps | retain_coef | remove_coef | lr | batch | retain_loss | forget_loss | WMDP Bio (↓) | MMLU (↑) | Notes |
-|----------|--------|-------|-------------|-------------|-----|-------|-------------|-------------|--------------|----------|-------|
-| 8192     | 1      | 256   | 5.0         | 5.0         | 1e-3 | 32   | 1.19        | 1.04        | **23.16%**   | 34.35%   | Best result |
-| 16384    | 2      | 1024  | 5.0         | 5.0         | 1e-3 | 32   | pending     | pending     | pending      | pending  | Long run |
+| examples | epochs | steps | retain_coef | remove_coef | lr | batch | LoRA rank | retain_loss | forget_loss | WMDP Bio (↓) | MMLU (↑) | Notes |
+|----------|--------|-------|-------------|-------------|-----|-------|-----------|-------------|-------------|--------------|----------|-------|
+| 8192     | 1      | 256   | 5.0         | 5.0         | 1e-3 | 32   | 16        | 1.19        | 1.04        | **23.16%**   | 34.35%   | Best result |
+| 16384    | 2      | 1024  | 5.0         | 5.0         | 1e-3 | 32   | 16        | pending     | pending     | pending      | pending  | Long run |
 
-### Muon Optimizer (torch.optim.Muon - PyTorch 2.10)
+### SFT + Muon Optimizer (torch.optim.Muon - PyTorch 2.10)
 
 | examples | steps | retain_coef | remove_coef | muon_lr | adam_lr | WMDP Bio (↓) | MMLU (↑) | Notes |
 |----------|-------|-------------|-------------|---------|---------|--------------|----------|-------|
