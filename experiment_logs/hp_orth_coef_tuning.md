@@ -4,14 +4,12 @@ Goal: Find boundary between minimal capability impact and noticeable damage.
 
 Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 
-## Planned Runs
+## Metric Interpretation
 
-| Run | remove_coef | orth_coef | Rationale |
-|-----|-------------|-----------|-----------|
-| 1   | 15          | 5         | Low intervention baseline |
-| 2   | 23          | 10        | Default values |
-| 3   | 30          | 15        | Moderately higher |
-| 4   | 40          | 20        | High intervention (expect damage) |
+**orth_loss**: Average pairwise cosine similarity between forget item representations in each batch. Measures whether forget items collapse to the same direction or remain diverse.
+- **~1.0** = bad (all forget items aligned to same direction, vulnerable to single-direction attacks)
+- **~0.5** = moderate diversity
+- **~0** = good (orthogonal forget directions)
 
 ## Results
 

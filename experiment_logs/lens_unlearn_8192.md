@@ -23,16 +23,6 @@
 | WMDP Bio Robust | 23.16% | ±1.44% |
 | MMLU STEM | 34.35% | ±0.83% |
 
-### WMDP Bio Robust Breakdown
-| Subtask | Score |
-|---------|-------|
-| bioweapons_and_bioterrorism | 25.26% |
-| dual_use_virology | 25.00% |
-| enhanced_potential_pandemic_pathogens | 18.63% |
-| expanding_access_to_threat_vectors | 23.81% |
-| reverse_genetics_and_easy_editing | 23.12% |
-| viral_vector_research | 23.17% |
-
 ## Notes
 - WMDP Bio score near random chance (25%) indicates successful unlearning
 - MMLU STEM retained at reasonable level (34.35%)

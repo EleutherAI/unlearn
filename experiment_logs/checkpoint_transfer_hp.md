@@ -10,6 +10,14 @@
 - `lr`: 1e-3
 - `layers`: [5, 10, 15, 20, 25, 30]
 
+## Baseline (Source Checkpoint)
+
+The source activations come from `EleutherAI/deep-ignorance-pretraining-stage-unfiltered @ global_step38144`:
+
+| Model | WMDP Bio | MMLU STEM |
+|-------|----------|-----------|
+| Checkpoint (source) | 24.19% | 27.78% |
+
 ## Notes
 
 - Higher remove_coef = stronger push towards checkpoint activations (more unlearning)
