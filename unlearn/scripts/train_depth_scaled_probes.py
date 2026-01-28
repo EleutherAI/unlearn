@@ -9,12 +9,12 @@ import os
 from pathlib import Path
 
 import torch
-import wandb
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+import wandb
 from unlearn.probe import (
     TransformerProbe,
     TransformerProbeConfig,
@@ -53,7 +53,9 @@ def parse_args():
     parser.add_argument("--probe_dim", type=int, default=64)
     parser.add_argument("--probe_heads", type=int, default=4)
     parser.add_argument("--ffn_multiplier", type=int, default=4)
-    parser.add_argument("--min_probe_layers", type=int, default=1, help="Minimum probe depth")
+    parser.add_argument(
+        "--min_probe_layers", type=int, default=1, help="Minimum probe depth"
+    )
 
     parser.add_argument("--num_train_examples", type=int, default=5000)
     parser.add_argument("--num_eval_examples", type=int, default=500)
@@ -171,12 +173,16 @@ def train_probe(
             num_batches += 1
             step += 1
 
-            pbar.set_postfix({"loss": loss.item(), "step": f"{step}/{total_train_steps}"})
+            pbar.set_postfix(
+                {"loss": loss.item(), "step": f"{step}/{total_train_steps}"}
+            )
 
-            wandb.log({
-                f"layer_{layer_idx}/train_loss": loss.item(),
-                f"layer_{layer_idx}/step": step,
-            })
+            wandb.log(
+                {
+                    f"layer_{layer_idx}/train_loss": loss.item(),
+                    f"layer_{layer_idx}/step": step,
+                }
+            )
 
         avg_train_loss = epoch_loss / num_batches
 
@@ -215,13 +221,17 @@ def train_probe(
 
         avg_eval_mse = eval_mse / eval_tokens
 
-        print(f"  Epoch {epoch+1}: train_loss={avg_train_loss:.6f}, eval_mse={avg_eval_mse:.6f}")
+        print(
+            f"  Epoch {epoch+1}: train_loss={avg_train_loss:.6f}, eval_mse={avg_eval_mse:.6f}"
+        )
 
-        wandb.log({
-            f"layer_{layer_idx}/epoch": epoch + 1,
-            f"layer_{layer_idx}/avg_train_loss": avg_train_loss,
-            f"layer_{layer_idx}/eval_mse": avg_eval_mse,
-        })
+        wandb.log(
+            {
+                f"layer_{layer_idx}/epoch": epoch + 1,
+                f"layer_{layer_idx}/avg_train_loss": avg_train_loss,
+                f"layer_{layer_idx}/eval_mse": avg_eval_mse,
+            }
+        )
 
     return avg_train_loss, avg_eval_mse
 
@@ -359,10 +369,12 @@ def main():
         param_count = sum(p.numel() for p in probe.parameters())
         print(f"Probe parameters: {param_count:,}")
 
-        wandb.log({
-            f"layer_{layer_idx}/probe_depth": probe_layers,
-            f"layer_{layer_idx}/probe_params": param_count,
-        })
+        wandb.log(
+            {
+                f"layer_{layer_idx}/probe_depth": probe_layers,
+                f"layer_{layer_idx}/probe_params": param_count,
+            }
+        )
 
         train_mse, eval_mse = train_probe(
             probe=probe,
@@ -386,10 +398,12 @@ def main():
             eval_mse=eval_mse,
         )
 
-        wandb.log({
-            f"layer_{layer_idx}/final_train_mse": train_mse,
-            f"layer_{layer_idx}/final_eval_mse": eval_mse,
-        })
+        wandb.log(
+            {
+                f"layer_{layer_idx}/final_train_mse": train_mse,
+                f"layer_{layer_idx}/final_eval_mse": eval_mse,
+            }
+        )
 
     wandb.finish()
     print(f"\nAll probes saved to {save_dir}")

@@ -5,6 +5,7 @@ from unlearn.reference.cas.utils import (
     BIO_CORRUPT_SHUFFLED_DS_NAME,
     BIO_REMOVE_DS_NAME,
     BIO_RETAIN_DS_NAME,
+    RETAIN_CHAT_DS_NAME,
     RETAIN_INCOMPETENT_COMPLIANCE_DS_NAME,
     RETAIN_REFUSAL_COMPLIANCE_DS_NAME,
     RETAIN_TEXT_DS_NAME,
@@ -13,6 +14,7 @@ from unlearn.reference.cas.utils import (
     hf_token,
     incompetent_compliance_tokenize_function,
     refusal_compliance_tokenize_function,
+    ultrachat_tokenize_function,
     wikitext_tokenize_function,
 )
 
@@ -68,6 +70,19 @@ def get_unlearning_dataset(args, tokenizer, num_proc: int):
             num_proc=num_proc,
         )
         retain_datasets.append(tokenized_bio_retain_dataset)
+
+    if getattr(args, "use_ultrachat", False):
+        ultrachat_dataset = load_dataset(RETAIN_CHAT_DS_NAME, split="train_sft")
+        ultrachat_dataset = ultrachat_dataset.shuffle(seed=42).select(
+            range(int(args.num_train_examples * 0.25))
+        )
+        tokenized_ultrachat_dataset = ultrachat_dataset.map(
+            lambda x: ultrachat_tokenize_function(x, tokenizer),
+            batched=True,
+            num_proc=num_proc,
+        )
+        retain_datasets.append(tokenized_ultrachat_dataset)
+
     retain_datasets = [
         concatenate_datasets(retain_datasets)
         .shuffle(seed=42)

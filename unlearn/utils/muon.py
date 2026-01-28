@@ -64,7 +64,9 @@ class MuonAdamW(torch.optim.Optimizer):
         # Initialize base class (dummy) to satisfy type checks
         super().__init__(self.param_groups, {})
 
-        print(f"MuonAdamW: {len(muon_params)} Muon params, {len(adam_params)} AdamW params")
+        print(
+            f"MuonAdamW: {len(muon_params)} Muon params, {len(adam_params)} AdamW params"
+        )
 
     def step(self, closure=None):
         loss = None

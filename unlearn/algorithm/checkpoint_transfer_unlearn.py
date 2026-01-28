@@ -16,13 +16,13 @@ from transformers import (
 )
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import seed_worker
+
 from unlearn.algorithm.online_affine_fitter import (
     evaluate_affine_mse,
     load_affine_transforms,
     train_affine_transform,
     upload_affine_transforms_to_hub,
 )
-
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer
 
@@ -263,7 +263,10 @@ class RRTrainer(UnlearningTrainer):
 
                     # KL divergence per token
                     kl_per_token = F.kl_div(
-                        lora_log_probs, orig_log_probs, reduction="none", log_target=True
+                        lora_log_probs,
+                        orig_log_probs,
+                        reduction="none",
+                        log_target=True,
                     ).sum(dim=-1)
 
                     # Mask and average
@@ -287,7 +290,9 @@ class RRTrainer(UnlearningTrainer):
                         target_masked = (target_act * mask_expanded).float()
                         pred_masked = (pred_act * mask_expanded).float()
 
-                        layer_mse = F.mse_loss(target_masked, pred_masked, reduction="none")
+                        layer_mse = F.mse_loss(
+                            target_masked, pred_masked, reduction="none"
+                        )
                         mse_per_token = layer_mse.mean(dim=-1)
                         masked_loss = mse_per_token * mask_expanded.squeeze(-1)
                         layer_loss_sum = masked_loss.sum()
@@ -425,7 +430,11 @@ class RRTrainer(UnlearningTrainer):
                 f"retain_coeff: {retain_coeff:.4f} || "
                 f"cb_coeff: {circuit_breaker_coeff:.4f}"
             )
-            retain_type = "ce" if self.run_args.retain_ce_loss else ("kl" if self.run_args.retain_kl_loss else "mse")
+            retain_type = (
+                "ce"
+                if self.run_args.retain_ce_loss
+                else ("kl" if self.run_args.retain_kl_loss else "mse")
+            )
             print(
                 f"retain_loss ({retain_type}): {retain_loss_val:.4f} || cb_loss: {cb_loss_val:.4f}"
             )
@@ -643,8 +652,9 @@ if __name__ == "__main__":
 
     # Load or train affine transforms
     if args.load_affine_from_hub:
-        from huggingface_hub import hf_hub_download
         import tempfile
+
+        from huggingface_hub import hf_hub_download
 
         print(f"Loading affine transforms from {args.load_affine_from_hub}...")
         with tempfile.TemporaryDirectory() as tmpdir:

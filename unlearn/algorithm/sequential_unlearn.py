@@ -188,25 +188,52 @@ class SequentialUnlearningTrainer(Trainer):
 
         # === Retain loss: keep full model outputs close to original ===
         if retain_coeff > 0:
-            with torch.no_grad():
-                orig_outputs = self.original_model(
+            if self.run_args.retain_loss_type == "kl":
+                # KL divergence on output logits
+                with torch.no_grad():
+                    orig_outputs = self.original_model(
+                        input_ids=retain_input_ids,
+                        attention_mask=retain_attention_mask,
+                    )
+                    orig_logits = orig_outputs.logits.detach()
+
+                current_outputs = unwrapped_model(
+                    input_ids=retain_input_ids,
+                    attention_mask=retain_attention_mask,
+                )
+                current_logits = current_outputs.logits
+
+                # KL(current || original) on masked positions
+                mask = retain_attention_mask.bool()
+                orig_probs = F.softmax(orig_logits[mask].float(), dim=-1)
+                current_log_probs = F.log_softmax(current_logits[mask].float(), dim=-1)
+                retain_loss = F.kl_div(
+                    current_log_probs, orig_probs, reduction="batchmean"
+                )
+            else:
+                # L2 norm on hidden states (default)
+                with torch.no_grad():
+                    orig_outputs = self.original_model(
+                        input_ids=retain_input_ids,
+                        attention_mask=retain_attention_mask,
+                        output_hidden_states=True,
+                    )
+                    orig_hidden = torch.stack(orig_outputs.hidden_states).detach()
+
+                current_outputs = unwrapped_model(
                     input_ids=retain_input_ids,
                     attention_mask=retain_attention_mask,
                     output_hidden_states=True,
                 )
-                orig_hidden = torch.stack(orig_outputs.hidden_states).detach()
+                current_hidden = torch.stack(current_outputs.hidden_states)
 
-            current_outputs = unwrapped_model(
-                input_ids=retain_input_ids,
-                attention_mask=retain_attention_mask,
-                output_hidden_states=True,
-            )
-            current_hidden = torch.stack(current_outputs.hidden_states)
-
-            mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
-            retain_loss = torch.norm(
-                (current_hidden - orig_hidden) * mask, dim=-1, p=2, dtype=torch.float
-            ).nanmean()
+                mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
+                retain_loss = torch.norm(
+                    (current_hidden - orig_hidden) * mask,
+                    dim=-1,
+                    p=2,
+                    dtype=torch.float,
+                ).nanmean()
         else:
             retain_loss = torch.tensor(0.0, device=device)
 
@@ -284,6 +311,13 @@ def main():
     parser.add_argument("--pdbs", type=int, default=4)
     parser.add_argument("--retain_coef", type=float, default=5.0)
     parser.add_argument("--remove_coef", type=float, default=10.0)
+    parser.add_argument(
+        "--retain_loss_type",
+        type=str,
+        default="l2",
+        choices=["l2", "kl"],
+        help="Type of retain loss: 'l2' (hidden state L2 norm) or 'kl' (KL divergence on logits)",
+    )
     parser.add_argument("--lora_r", type=int, default=16)
     parser.add_argument(
         "--start_layer",

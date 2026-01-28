@@ -25,12 +25,12 @@ from transformers import (
     TrainerCallback,
     TrainingArguments,
 )
-import bitsandbytes as bnb
 
 sys.path.append("./lm-evaluation-harness")
 
 from lm_eval import evaluator
 from lm_eval.models.huggingface import HFLM
+from lm_eval.tasks import TaskManager
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -39,7 +39,9 @@ MAX_LENGTH = 2048
 
 @dataclass
 class TamperAttackConfig:
-    model_name: str = "models/EleutherAI/deep-ignorance-unfiltered_lens_ex8192_rm5.0_ret5.0"
+    model_name: str = (
+        "models/EleutherAI/deep-ignorance-unfiltered_lens_ex8192_rm5.0_ret5.0"
+    )
     output_dir: str = "runs/tamper_attack"
     num_train_examples: int = 512
     epochs: int = 1
@@ -75,12 +77,17 @@ class WMDPEvalCallback(TrainerCallback):
         self.model.eval()
         with torch.no_grad():
             hflm_model = HFLM(self.model)
+            task_manager = TaskManager(
+                verbosity="ERROR",
+                include_path="/home/a6a/lucia.a6a/unlearn/unlearn/lm_eval_tasks",
+            )
             eval_results = evaluator.simple_evaluate(
                 model=hflm_model,
                 tasks=["wmdp_bio_robust"],
                 device=self.model.device,
                 verbosity="ERROR",
                 num_fewshot=0,
+                task_manager=task_manager,
             )
             acc = eval_results["results"]["wmdp_bio_robust"]["acc,none"]
             del hflm_model
@@ -99,18 +106,24 @@ class WMDPEvalCallback(TrainerCallback):
 def get_model_and_tokenizer(model_name: str):
     model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.add_special_tokens({
-        "pad_token": "<|padding|>",
-        "eos_token": "<|endoftext|>",
-        "bos_token": "<|startoftext|>",
-    })
+    tokenizer.add_special_tokens(
+        {
+            "pad_token": "<|padding|>",
+            "eos_token": "<|endoftext|>",
+            "bos_token": "<|startoftext|>",
+        }
+    )
     tokenizer.padding_side = "left"
     return model, tokenizer
 
 
 def tokenize_examples_fn(examples, tokenizer):
     cb_examples = [
-        examples["title"][i] + "\n\n" + examples["abstract"][i] + "\n\n" + examples["text"][i]
+        examples["title"][i]
+        + "\n\n"
+        + examples["abstract"][i]
+        + "\n\n"
+        + examples["text"][i]
         for i in range(len(examples["title"]))
     ]
     tokenized_output = tokenizer(cb_examples, padding="max_length", truncation=False)
@@ -136,12 +149,14 @@ def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=5):
             chunk_attention_mask += [0] * pad_len
             chunk_labels += [-100] * pad_len
             chunk_token_type_ids += [0] * pad_len
-        chunks.append({
-            "input_ids": chunk_input_ids,
-            "attention_mask": chunk_attention_mask,
-            "labels": chunk_labels,
-            "token_type_ids": chunk_token_type_ids,
-        })
+        chunks.append(
+            {
+                "input_ids": chunk_input_ids,
+                "attention_mask": chunk_attention_mask,
+                "labels": chunk_labels,
+                "token_type_ids": chunk_token_type_ids,
+            }
+        )
         if i >= (max_chunks - 1) * chunk_size:
             break
     return chunks
@@ -149,14 +164,20 @@ def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=5):
 
 def prepare_dataset(config: TamperAttackConfig, tokenizer):
     wmdp_bio_forget = load_dataset("Unlearning/WMDP-Bio-Remove-Dataset")
-    training_data = wmdp_bio_forget["train"].shuffle(seed=42).select(range(config.num_train_examples))
+    training_data = (
+        wmdp_bio_forget["train"]
+        .shuffle(seed=42)
+        .select(range(config.num_train_examples))
+    )
     tokenized_training_data = training_data.map(
         lambda x: tokenize_examples_fn(x, tokenizer), batched=True
     )
     chunked_examples = []
     for i, example in enumerate(tokenized_training_data):
         chunked_examples.extend(
-            chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=config.max_chunks)
+            chunk_example(
+                example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=config.max_chunks
+            )
         )
         if (i + 1) % 100 == 0:
             print(f"Processed {i+1} examples, total chunks: {len(chunked_examples)}")
@@ -213,7 +234,6 @@ def run_tamper_attack(config: TamperAttackConfig):
         num_train_epochs=config.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        fp16=True,
         save_strategy="no",
         warmup_steps=0,
         logging_strategy="steps",
@@ -221,17 +241,11 @@ def run_tamper_attack(config: TamperAttackConfig):
         report_to=[],
     )
 
-    optimizer = bnb.optim.Adam8bit(
-        model.parameters(),
-        lr=config.lr,
-        weight_decay=0.01,
-    )
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
         callbacks=[callback],
-        optimizers=(optimizer, None),
     )
 
     for param in model.parameters():
@@ -241,12 +255,14 @@ def run_tamper_attack(config: TamperAttackConfig):
     trainer.train()
 
     final_acc = callback._evaluate_wmdp()
-    callback.eval_results.append({
-        "step": trainer.state.global_step,
-        "wmdp_bio_acc": final_acc,
-        "timestamp": datetime.now().isoformat(),
-        "final": True,
-    })
+    callback.eval_results.append(
+        {
+            "step": trainer.state.global_step,
+            "wmdp_bio_acc": final_acc,
+            "timestamp": datetime.now().isoformat(),
+            "final": True,
+        }
+    )
     callback._save_results()
 
     print("\n" + "=" * 50)
@@ -262,7 +278,9 @@ def run_tamper_attack(config: TamperAttackConfig):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run tamper attack with evaluation and plotting")
+    parser = argparse.ArgumentParser(
+        description="Run tamper attack with evaluation and plotting"
+    )
     parser.add_argument(
         "--model_name",
         type=str,

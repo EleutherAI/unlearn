@@ -6,17 +6,17 @@ import os
 from typing import Dict, cast
 
 import torch
-from torch import nn
 from peft import LoraConfig, get_peft_model
+from torch import nn
 from torch.utils.data import DataLoader
-from transformers import Trainer, TrainingArguments, PreTrainedModel
+from transformers import PreTrainedModel, Trainer, TrainingArguments
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import seed_worker
 
-from unlearn.utils.utils import assert_type
-from unlearn.utils.worker_utils import get_model_and_tokenizer
 from unlearn.utils.hook import ActivationCapture
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
+from unlearn.utils.utils import assert_type
+from unlearn.utils.worker_utils import get_model_and_tokenizer
 
 
 class UnlearningTrainer(Trainer):
@@ -58,13 +58,13 @@ class UnlearningTrainer(Trainer):
         Handles PEFT wrapping and different architectures (OLMo, Llama, etc.).
         """
         unwrapped = unwrap_model(model)
-        
+
         # Navigate through PEFT/DDP wrappers to find the base transformer
         base = unwrapped
         if hasattr(base, "base_model"):
             base = base.base_model
         if hasattr(base, "model"):
-            base = base.model # type: ignore
+            base = base.model  # type: ignore
 
         base = assert_type(nn.Module, base)
 
@@ -77,7 +77,7 @@ class UnlearningTrainer(Trainer):
                 if "layers" in name or "blocks" in name or "h" in name:
                     layer_list_name = name
                     break
-        
+
         if not layer_list_name:
             # Fallback for OLMo specific if naming is tricky
             if hasattr(base, "transformer") and hasattr(base.transformer, "blocks"):
@@ -85,19 +85,21 @@ class UnlearningTrainer(Trainer):
             elif hasattr(base, "layers"):
                 layer_list_name = "layers"
             else:
-                raise ValueError("Could not automatically locate transformer layer list.")
+                raise ValueError(
+                    "Could not automatically locate transformer layer list."
+                )
 
         # Construct full names relative to the unwrapped model
         # Note: named_modules() on the full model will include prefixes.
         # We scan the full unwrapped model to match the exact string for the hook.
-        
+
         mapping = {}
         # We need the prefix required to reach 'base' from 'unwrapped'
         # To do this safely, we just iterate the full unwrapped model and find the matching suffix.
-        
+
         found_count = 0
         target_indices = set(layer_indices)
-        
+
         for name, module in unwrapped.named_modules():
             # Check if this module is one of the layers we want
             # The name usually ends in "{layer_list_name}.{index}"
@@ -111,10 +113,12 @@ class UnlearningTrainer(Trainer):
                         found_count += 1
                 except ValueError:
                     continue
-        
+
         if len(mapping) != len(target_indices):
-            print(f"Warning: requested {len(target_indices)} layers, but found {len(mapping)}.")
-            
+            print(
+                f"Warning: requested {len(target_indices)} layers, but found {len(mapping)}."
+            )
+
         return mapping
 
     def get_train_dataloader(self) -> DataLoader:
@@ -138,13 +142,17 @@ class UnlearningTrainer(Trainer):
             dataloader_params["worker_init_fn"] = seed_worker
             dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
-        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params)) # type: ignore
+        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))  # type: ignore
 
 
 class RRTrainer(UnlearningTrainer):
 
     def compute_loss(
-        self, model: PreTrainedModel, inputs, return_outputs=False, num_items_in_batch=None
+        self,
+        model: PreTrainedModel,
+        inputs,
+        return_outputs=False,
+        num_items_in_batch=None,
     ):
         unwrapped_model = unwrap_model(model)
 
@@ -155,19 +163,19 @@ class RRTrainer(UnlearningTrainer):
         )
 
         # === retain ===
-        retain_input_ids = inputs.get("input_ids").to(target_device) # type: ignore
-        retain_attention_mask = inputs.get("attention_mask").to(target_device) # type: ignore
+        retain_input_ids = inputs.get("input_ids").to(target_device)  # type: ignore
+        retain_attention_mask = inputs.get("attention_mask").to(target_device)  # type: ignore
         # ==== cb ====
-        circuit_breaker_input_ids = inputs.get("bio_remove_input_ids").to(target_device) # type: ignore
-        circuit_breaker_attention_mask = inputs.get("bio_remove_attention_mask").to( # type: ignore
-            target_device # type: ignore
+        circuit_breaker_input_ids = inputs.get("bio_remove_input_ids").to(target_device)  # type: ignore
+        circuit_breaker_attention_mask = inputs.get("bio_remove_attention_mask").to(  # type: ignore
+            target_device  # type: ignore
         )
 
         # ==== Inputs ====
         retain_inputs_dict = dict(
             input_ids=retain_input_ids,
             attention_mask=retain_attention_mask,
-            output_hidden_states=False, 
+            output_hidden_states=False,
         )
         cb_inputs_dict = dict(
             input_ids=circuit_breaker_input_ids,
@@ -198,69 +206,77 @@ class RRTrainer(UnlearningTrainer):
         capturer = ActivationCapture(unwrapped_model, self.target_module_names)
 
         # --- Forward Pass 1: Reference (No Adapter) ---
-        with unwrapped_model.disable_adapter(): # type: ignore
+        with unwrapped_model.disable_adapter():  # type: ignore
             unwrapped_model.eval()
-            capturer.register() # Attach hooks
-            
+            capturer.register()  # Attach hooks
+
             with torch.no_grad():
                 ### Retain control
                 if retain_coeff > 0:
                     unwrapped_model(**retain_inputs_dict)
                     # Extract and Stack
                     # Logic: Map the requested layer IDs -> Get Name -> Get Tensor
-                    orig_retain_hidden = torch.stack([
-                        capturer.activations[self.layer_id_to_name[l]].detach()
-                        for l in self.lora_target_layers
-                    ])
+                    orig_retain_hidden = torch.stack(
+                        [
+                            capturer.activations[self.layer_id_to_name[l]].detach()
+                            for l in self.lora_target_layers
+                        ]
+                    )
                     orig_retain_hidden *= broadcast_retain_mask
-                
+
                 # Clear activations to free memory before next pass, but keep hooks if needed
                 # Actually simpler to just capture both if memory allows, but separating is safer
-                capturer.activations = {} 
+                capturer.activations = {}
 
                 ### Circuit Breaker control
                 if circuit_breaker_coeff > 0:
                     unwrapped_model(**cb_inputs_dict)
-                    circuit_breaker_hidden = torch.stack([
-                        capturer.activations[self.layer_id_to_name[l]].detach()
-                        for l in self.lora_target_layers
-                    ])
-            
-            capturer.remove() # Remove hooks
+                    circuit_breaker_hidden = torch.stack(
+                        [
+                            capturer.activations[self.layer_id_to_name[l]].detach()
+                            for l in self.lora_target_layers
+                        ]
+                    )
+
+            capturer.remove()  # Remove hooks
 
         unwrapped_model.train()
 
         # --- Forward Pass 2: Training (With Adapter) ---
-        
+
         # Re-register hooks for the training pass
         capturer.register()
 
         ### Retain control
         if retain_coeff > 0:
             unwrapped_model(**retain_inputs_dict)
-            
-            lora_retain_hidden = torch.stack([
-                capturer.activations[self.layer_id_to_name[l]]
-                for l in self.lora_target_layers
-            ])
+
+            lora_retain_hidden = torch.stack(
+                [
+                    capturer.activations[self.layer_id_to_name[l]]
+                    for l in self.lora_target_layers
+                ]
+            )
             lora_retain_hidden = lora_retain_hidden * broadcast_retain_mask
-            
+
             retain_loss = torch.norm(
                 lora_retain_hidden - orig_retain_hidden, dim=-1, p=2, dtype=torch.float
             ).nanmean()
-            
-            capturer.activations = {} # Clear for next input
+
+            capturer.activations = {}  # Clear for next input
         else:
             retain_loss = 0
 
         ### Circuit Breaker control
         if circuit_breaker_coeff > 0:
             unwrapped_model(**cb_inputs_dict)
-            
-            lora_circuit_breaker_hidden = torch.stack([
-                capturer.activations[self.layer_id_to_name[l]]
-                for l in self.lora_target_layers
-            ])
+
+            lora_circuit_breaker_hidden = torch.stack(
+                [
+                    capturer.activations[self.layer_id_to_name[l]]
+                    for l in self.lora_target_layers
+                ]
+            )
 
             # Normalize
             normalized_lora_circuit_breaker_outputs = lora_circuit_breaker_hidden / (
@@ -313,7 +329,9 @@ class RRTrainer(UnlearningTrainer):
                 batch_size = pairwise_sim.shape[1]
                 diag_mask = (
                     1.0
-                    - torch.eye(batch_size, device=pairwise_sim.device, dtype=torch.float)
+                    - torch.eye(
+                        batch_size, device=pairwise_sim.device, dtype=torch.float
+                    )
                 ).unsqueeze(0)
                 off_diag_sim = pairwise_sim * diag_mask
 
@@ -326,8 +344,8 @@ class RRTrainer(UnlearningTrainer):
         else:
             circuit_breaker_loss = 0
             orth_loss = torch.tensor(0.0, device=target_device)
-            
-        capturer.remove() # Clean up
+
+        capturer.remove()  # Clean up
 
         loss = (
             retain_coeff * retain_loss
@@ -348,7 +366,6 @@ class RRTrainer(UnlearningTrainer):
 
         self.current_training_step += 1
         return (loss,) if return_outputs else loss
-
 
 
 if __name__ == "__main__":
@@ -450,7 +467,7 @@ if __name__ == "__main__":
         gradient_checkpointing=True,
         fp16=True,
         save_strategy="no",
-        # Required for Custom loops 
+        # Required for Custom loops
         ddp_find_unused_parameters=False,
     )
 
@@ -462,7 +479,7 @@ if __name__ == "__main__":
     trainer.train()
 
     if args.lora:
-        model = model.merge_and_unload() # type: ignore
+        model = model.merge_and_unload()  # type: ignore
 
     if args.save_name:
         if "models/" in args.model_name:

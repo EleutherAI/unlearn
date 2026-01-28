@@ -301,9 +301,9 @@ def evaluate_affine_mse(
         else:
             metrics[f"layer_{layer_idx}"] = 0.0
 
-    metrics["mean_mse"] = sum(
-        metrics[f"layer_{l}"] for l in target_layers
-    ) / len(target_layers)
+    metrics["mean_mse"] = sum(metrics[f"layer_{l}"] for l in target_layers) / len(
+        target_layers
+    )
 
     print(f"Mean MSE: {metrics['mean_mse']:.6f}")
     return metrics

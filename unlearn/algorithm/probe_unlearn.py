@@ -123,7 +123,9 @@ class ProbeUnlearningTrainer(Trainer):
                 unwrapped_model.eval()
                 with torch.no_grad():
                     if retain_coeff > 0:
-                        orig_retain_outputs = unwrapped_model(**retain_inputs_dict)["hidden_states"]
+                        orig_retain_outputs = unwrapped_model(**retain_inputs_dict)[
+                            "hidden_states"
+                        ]
                         orig_retain_hidden = torch.stack(orig_retain_outputs).detach()
                         orig_retain_hidden *= broadcast_retain_mask
                         del orig_retain_outputs
@@ -131,7 +133,9 @@ class ProbeUnlearningTrainer(Trainer):
             unwrapped_model.eval()
             with torch.no_grad():
                 if retain_coeff > 0:
-                    orig_retain_outputs = unwrapped_model(**retain_inputs_dict)["hidden_states"]
+                    orig_retain_outputs = unwrapped_model(**retain_inputs_dict)[
+                        "hidden_states"
+                    ]
                     orig_retain_hidden = torch.stack(orig_retain_outputs).detach()
                     orig_retain_hidden *= broadcast_retain_mask
                     del orig_retain_outputs
@@ -141,7 +145,9 @@ class ProbeUnlearningTrainer(Trainer):
         # Retain loss: keep hidden states close to original
         if retain_coeff > 0:
             lora_retain_outputs = unwrapped_model(**retain_inputs_dict)["hidden_states"]
-            lora_retain_hidden = torch.stack(lora_retain_outputs) * broadcast_retain_mask
+            lora_retain_hidden = (
+                torch.stack(lora_retain_outputs) * broadcast_retain_mask
+            )
             retain_loss = torch.norm(
                 lora_retain_hidden - orig_retain_hidden, dim=-1, p=2, dtype=torch.float
             ).nanmean()
@@ -166,8 +172,7 @@ class ProbeUnlearningTrainer(Trainer):
                 # Note: probe weights are frozen (requires_grad=False) but we need
                 # gradients to flow through hidden states back to the model
                 probe_out = probe(
-                    hidden.float(),
-                    cb_attention_mask.bool()
+                    hidden.float(), cb_attention_mask.bool()
                 )  # [batch, seq, hidden]
 
                 # Pass probe output through remaining layers to get logits
@@ -222,9 +227,21 @@ class ProbeUnlearningTrainer(Trainer):
             self.current_training_step % 32 == 0
             and int(os.environ.get("LOCAL_RANK", 0)) == 0
         ):
-            entropy_val = mean_entropy.item() if isinstance(mean_entropy, torch.Tensor) else mean_entropy
-            retain_val = retain_loss.item() if isinstance(retain_loss, torch.Tensor) else retain_loss
-            cb_val = circuit_breaker_loss.item() if isinstance(circuit_breaker_loss, torch.Tensor) else circuit_breaker_loss
+            entropy_val = (
+                mean_entropy.item()
+                if isinstance(mean_entropy, torch.Tensor)
+                else mean_entropy
+            )
+            retain_val = (
+                retain_loss.item()
+                if isinstance(retain_loss, torch.Tensor)
+                else retain_loss
+            )
+            cb_val = (
+                circuit_breaker_loss.item()
+                if isinstance(circuit_breaker_loss, torch.Tensor)
+                else circuit_breaker_loss
+            )
             print(
                 f"step {self.current_training_step} | "
                 f"retain_coeff: {retain_coeff:.4f} | "
@@ -238,7 +255,9 @@ class ProbeUnlearningTrainer(Trainer):
         return (loss,) if return_outputs else loss
 
 
-def load_probes(probe_dir: str, layers: list[int], device: str) -> dict[int, TransformerProbe]:
+def load_probes(
+    probe_dir: str, layers: list[int], device: str
+) -> dict[int, TransformerProbe]:
     """Load transformer probes for specified layers."""
     probe_dir = Path(probe_dir)
     probes = {}
@@ -256,7 +275,9 @@ def load_probes(probe_dir: str, layers: list[int], device: str) -> dict[int, Tra
         for param in probe.parameters():
             param.requires_grad = False
         probes[layer_idx] = probe
-        print(f"Loaded probe for layer {layer_idx} ({sum(p.numel() for p in probe.parameters()):,} params)")
+        print(
+            f"Loaded probe for layer {layer_idx} ({sum(p.numel() for p in probe.parameters()):,} params)"
+        )
 
     return probes
 
@@ -278,7 +299,9 @@ if __name__ == "__main__":
     parser.add_argument("--retain_coef", type=float, default=5.0)
     parser.add_argument("--remove_coef", type=float, default=5.0)
     parser.add_argument("--lora_r", type=int, default=16)
-    parser.add_argument("--lora", action="store_true", help="Use LoRA (default: full SFT)")
+    parser.add_argument(
+        "--lora", action="store_true", help="Use LoRA (default: full SFT)"
+    )
     parser.add_argument(
         "--layers",
         type=int,
@@ -292,7 +315,10 @@ if __name__ == "__main__":
     parser.add_argument("--save_name", type=str, default="")
     parser.add_argument("--revision", type=str, default="main")
     parser.add_argument(
-        "--probe_dir", type=str, required=True, help="Path to trained transformer probes"
+        "--probe_dir",
+        type=str,
+        required=True,
+        help="Path to trained transformer probes",
     )
     parser.add_argument("--epochs", type=int, default=1)
 
@@ -315,7 +341,9 @@ if __name__ == "__main__":
     probes = load_probes(args.probe_dir, args.layers, device=str(device))
 
     if not probes:
-        raise ValueError(f"No probes found at {args.probe_dir} for layers {args.layers}")
+        raise ValueError(
+            f"No probes found at {args.probe_dir} for layers {args.layers}"
+        )
 
     # Filter layers to only those with available probes
     available_layers = list(probes.keys())
@@ -338,7 +366,9 @@ if __name__ == "__main__":
         model.print_trainable_parameters()
     else:
         print("\nUsing full SFT (no LoRA)")
-        print("WARNING: Retain loss requires a frozen reference model. Setting retain_coef=0 for SFT.")
+        print(
+            "WARNING: Retain loss requires a frozen reference model. Setting retain_coef=0 for SFT."
+        )
         args.retain_coef = 0.0
         for param in model.parameters():
             param.requires_grad = True
@@ -388,7 +418,9 @@ if __name__ == "__main__":
 
     if args.save_name:
         mode_str = f"lora{args.lora_r}" if args.lora else "sft"
-        save_path = f"./models/{args.model_name.replace('/', '_')}_{args.save_name}_{mode_str}"
+        save_path = (
+            f"./models/{args.model_name.replace('/', '_')}_{args.save_name}_{mode_str}"
+        )
         print(f"\nSaving model to: {save_path}")
         model.save_pretrained(save_path)
         tokenizer.save_pretrained(save_path)

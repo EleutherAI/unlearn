@@ -407,10 +407,17 @@ def ultrachat_tokenize_function(
 ):
     # Convert list of messages into conversation format
     conversations = []
-    for example in examples[
-        "messages"
-    ]:  # assuming 'dialog' is the key containing the list of messages
-        conversations.append(tokenizer.apply_chat_template(example, tokenize=False))
+    for example in examples["messages"]:
+        if tokenizer.chat_template is not None:
+            conversations.append(tokenizer.apply_chat_template(example, tokenize=False))
+        else:
+            # Fallback for tokenizers without chat templates
+            text = ""
+            for msg in example:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                text += f"{role}: {content}\n\n"
+            conversations.append(text.strip())
     # Tokenize the formatted conversations
     if truncate:
         tokenized_output = tokenizer(

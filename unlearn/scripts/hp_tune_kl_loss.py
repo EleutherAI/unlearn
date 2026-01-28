@@ -33,18 +33,28 @@ def run_training(hp_cfg: HPConfig, output_dir: str, job_name: str) -> Optional[s
     save_name = f"kl_ret{hp_cfg.retain_coef}_rm{hp_cfg.remove_coef}"
 
     cmd = [
-        sys.executable, "-m", "unlearn.algorithm.checkpoint_transfer_unlearn",
-        "--num_train_examples", str(hp_cfg.num_train_examples),
-        "--pdbs", str(hp_cfg.pdbs),
-        "--lr", str(hp_cfg.lr),
-        "--retain_coef", str(hp_cfg.retain_coef),
-        "--remove_coef", str(hp_cfg.remove_coef),
+        sys.executable,
+        "-m",
+        "unlearn.algorithm.checkpoint_transfer_unlearn",
+        "--num_train_examples",
+        str(hp_cfg.num_train_examples),
+        "--pdbs",
+        str(hp_cfg.pdbs),
+        "--lr",
+        str(hp_cfg.lr),
+        "--retain_coef",
+        str(hp_cfg.retain_coef),
+        "--remove_coef",
+        str(hp_cfg.remove_coef),
         "--retain_kl_loss",
-        "--save_name", save_name,
+        "--save_name",
+        save_name,
     ]
 
     print(f"\n{'='*60}")
-    print(f"Training: retain_coef={hp_cfg.retain_coef}, remove_coef={hp_cfg.remove_coef}")
+    print(
+        f"Training: retain_coef={hp_cfg.retain_coef}, remove_coef={hp_cfg.remove_coef}"
+    )
     print(f"Command: {' '.join(cmd)}")
     print(f"{'='*60}\n")
 
@@ -64,13 +74,18 @@ def run_training(hp_cfg: HPConfig, output_dir: str, job_name: str) -> Optional[s
 def run_eval_wmdp(model_path: str, include_path: str) -> Optional[float]:
     """Run WMDP Bio Robust evaluation."""
     cmd = [
-        sys.executable, "-m", "unlearn.evaluation.eval_wmdp_robust",
-        "--model_path", model_path,
-        "--include_path", include_path,
-        "--batch_size", "4",
+        sys.executable,
+        "-m",
+        "unlearn.evaluation.eval_wmdp_robust",
+        "--model_path",
+        model_path,
+        "--include_path",
+        include_path,
+        "--batch_size",
+        "4",
     ]
 
-    print(f"\nRunning WMDP evaluation...")
+    print("\nRunning WMDP evaluation...")
     print(f"Command: {' '.join(cmd)}")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -95,12 +110,16 @@ def run_eval_wmdp(model_path: str, include_path: str) -> Optional[float]:
 def run_eval_mmlu(model_path: str) -> Optional[float]:
     """Run MMLU STEM evaluation."""
     cmd = [
-        sys.executable, "-m", "unlearn.evaluation.eval_mmlu",
-        "--model_path", model_path,
-        "--batch_size", "4",
+        sys.executable,
+        "-m",
+        "unlearn.evaluation.eval_mmlu",
+        "--model_path",
+        model_path,
+        "--batch_size",
+        "4",
     ]
 
-    print(f"\nRunning MMLU evaluation...")
+    print("\nRunning MMLU evaluation...")
     print(f"Command: {' '.join(cmd)}")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -151,7 +170,9 @@ def main():
     output_dir = "./runs"
     os.makedirs(output_dir, exist_ok=True)
 
-    configs_to_run = [CONFIGS[run_args.config_idx]] if run_args.config_idx is not None else CONFIGS
+    configs_to_run = (
+        [CONFIGS[run_args.config_idx]] if run_args.config_idx is not None else CONFIGS
+    )
 
     results = []
 
@@ -167,13 +188,15 @@ def main():
         if not run_args.skip_training:
             model_path = run_training(hp_cfg, output_dir, config_name)
             if model_path is None:
-                results.append({
-                    "retain_coef": hp_cfg.retain_coef,
-                    "remove_coef": hp_cfg.remove_coef,
-                    "wmdp": None,
-                    "mmlu": None,
-                    "status": "training_failed",
-                })
+                results.append(
+                    {
+                        "retain_coef": hp_cfg.retain_coef,
+                        "remove_coef": hp_cfg.remove_coef,
+                        "wmdp": None,
+                        "mmlu": None,
+                        "status": "training_failed",
+                    }
+                )
                 continue
 
         wmdp_score = None
@@ -183,16 +206,20 @@ def main():
             wmdp_score = run_eval_wmdp(model_path, run_args.include_path)
             mmlu_score = run_eval_mmlu(model_path)
 
-        results.append({
-            "retain_coef": hp_cfg.retain_coef,
-            "remove_coef": hp_cfg.remove_coef,
-            "wmdp": wmdp_score,
-            "mmlu": mmlu_score,
-            "status": "completed",
-        })
+        results.append(
+            {
+                "retain_coef": hp_cfg.retain_coef,
+                "remove_coef": hp_cfg.remove_coef,
+                "wmdp": wmdp_score,
+                "mmlu": mmlu_score,
+                "status": "completed",
+            }
+        )
 
         print(f"\n{'='*60}")
-        print(f"Results for retain_coef={hp_cfg.retain_coef}, remove_coef={hp_cfg.remove_coef}:")
+        print(
+            f"Results for retain_coef={hp_cfg.retain_coef}, remove_coef={hp_cfg.remove_coef}:"
+        )
         print(f"  WMDP Bio: {wmdp_score:.2f}%" if wmdp_score else "  WMDP Bio: N/A")
         print(f"  MMLU STEM: {mmlu_score:.2f}%" if mmlu_score else "  MMLU STEM: N/A")
         print(f"{'='*60}")
@@ -200,12 +227,16 @@ def main():
     print("\n\n" + "=" * 80)
     print("SUMMARY")
     print("=" * 80)
-    print(f"{'retain_coef':<12} {'remove_coef':<12} {'WMDP Bio':<15} {'MMLU STEM':<15} {'Status':<15}")
+    print(
+        f"{'retain_coef':<12} {'remove_coef':<12} {'WMDP Bio':<15} {'MMLU STEM':<15} {'Status':<15}"
+    )
     print("-" * 80)
     for r in results:
-        wmdp_str = f"{r['wmdp']:.2f}%" if r['wmdp'] else "N/A"
-        mmlu_str = f"{r['mmlu']:.2f}%" if r['mmlu'] else "N/A"
-        print(f"{r['retain_coef']:<12} {r['remove_coef']:<12} {wmdp_str:<15} {mmlu_str:<15} {r['status']:<15}")
+        wmdp_str = f"{r['wmdp']:.2f}%" if r["wmdp"] else "N/A"
+        mmlu_str = f"{r['mmlu']:.2f}%" if r["mmlu"] else "N/A"
+        print(
+            f"{r['retain_coef']:<12} {r['remove_coef']:<12} {wmdp_str:<15} {mmlu_str:<15} {r['status']:<15}"
+        )
 
 
 if __name__ == "__main__":

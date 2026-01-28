@@ -2,9 +2,9 @@ import os
 import subprocess
 
 import torch
-import wandb
 from transformers import TrainerCallback
 
+import wandb
 from unlearn.utils.math import effective_rank, stable_rank
 
 

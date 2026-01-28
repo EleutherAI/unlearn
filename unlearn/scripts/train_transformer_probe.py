@@ -110,7 +110,9 @@ def main():
     print("=" * 60)
     print(f"Source: {args.source_model} @ {args.source_revision}")
     print(f"Target: {args.target_model} @ {args.target_revision}")
-    print(f"Probe: dim={args.probe_dim}, layers={args.probe_layers}, heads={args.probe_heads}")
+    print(
+        f"Probe: dim={args.probe_dim}, layers={args.probe_layers}, heads={args.probe_heads}"
+    )
     print(f"Training: {args.num_train_examples} examples, {args.epochs} epochs")
     print("=" * 60)
 
@@ -147,7 +149,11 @@ def main():
 
     layers = args.layers
     if layers is None:
-        layers = [num_model_layers // 4, num_model_layers // 2, 3 * num_model_layers // 4]
+        layers = [
+            num_model_layers // 4,
+            num_model_layers // 2,
+            3 * num_model_layers // 4,
+        ]
     print(f"Training probes for layers: {layers}")
 
     print("Loading dataset...")
@@ -217,7 +223,9 @@ def main():
             train_mse = trainer.train_epoch(train_loader)
             eval_mse = trainer.evaluate(eval_loader)
 
-            print(f"Epoch {epoch + 1}/{args.epochs}: train_mse={train_mse:.6f}, eval_mse={eval_mse:.6f}")
+            print(
+                f"Epoch {epoch + 1}/{args.epochs}: train_mse={train_mse:.6f}, eval_mse={eval_mse:.6f}"
+            )
 
             final_train_mse = train_mse
             if eval_mse < best_eval_mse:

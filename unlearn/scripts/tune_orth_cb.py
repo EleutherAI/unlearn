@@ -8,7 +8,6 @@ Results are logged to a markdown file.
 import argparse
 import os
 import subprocess
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -144,8 +143,12 @@ def write_results_header(results_file: str):
     with open(results_file, "w") as f:
         f.write("# Orthogonal Circuit Breaker Tuning Results\n\n")
         f.write(f"Started: {datetime.now().isoformat()}\n\n")
-        f.write("| orth_coef | remove_coef | WMDP (lower=better) | MMLU (higher=better) | Notes |\n")
-        f.write("|-----------|-------------|---------------------|----------------------|-------|\n")
+        f.write(
+            "| orth_coef | remove_coef | WMDP (lower=better) | MMLU (higher=better) | Notes |\n"
+        )
+        f.write(
+            "|-----------|-------------|---------------------|----------------------|-------|\n"
+        )
 
 
 def append_result(
@@ -158,12 +161,16 @@ def append_result(
 ):
     """Append a result row to the markdown file."""
     with open(results_file, "a") as f:
-        f.write(f"| {orth_coef:.2f} | {remove_coef:.2f} | {wmdp_acc:.4f} | {mmlu_acc:.4f} | {notes} |\n")
+        f.write(
+            f"| {orth_coef:.2f} | {remove_coef:.2f} | {wmdp_acc:.4f} | {mmlu_acc:.4f} | {notes} |\n"
+        )
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, default="EleutherAI/deep-ignorance-unfiltered")
+    parser.add_argument(
+        "--model_name", type=str, default="EleutherAI/deep-ignorance-unfiltered"
+    )
     parser.add_argument("--num_train_examples", type=int, default=1024)
     parser.add_argument("--pdbs", type=int, default=4)
     parser.add_argument("--retain_coef", type=float, default=5.0)
@@ -202,7 +209,12 @@ def main():
             success = run_training(orth_coef, remove_coef, save_name, cfg)
             if not success:
                 append_result(
-                    cfg.results_file, orth_coef, remove_coef, -1.0, -1.0, "Training failed"
+                    cfg.results_file,
+                    orth_coef,
+                    remove_coef,
+                    -1.0,
+                    -1.0,
+                    "Training failed",
                 )
                 continue
 
@@ -221,10 +233,12 @@ def main():
                 best_params = (orth_coef, remove_coef)
                 notes = "**NEW BEST**"
 
-            append_result(cfg.results_file, orth_coef, remove_coef, wmdp_acc, mmlu_acc, notes)
+            append_result(
+                cfg.results_file, orth_coef, remove_coef, wmdp_acc, mmlu_acc, notes
+            )
 
     with open(cfg.results_file, "a") as f:
-        f.write(f"\n\n## Best Parameters\n\n")
+        f.write("\n\n## Best Parameters\n\n")
         if best_params:
             f.write(f"- orth_coef: {best_params[0]}\n")
             f.write(f"- remove_coef: {best_params[1]}\n")
@@ -234,7 +248,9 @@ def main():
 
     print(f"\n\nResults written to: {cfg.results_file}")
     if best_params:
-        print(f"Best parameters: orth_coef={best_params[0]}, remove_coef={best_params[1]}")
+        print(
+            f"Best parameters: orth_coef={best_params[0]}, remove_coef={best_params[1]}"
+        )
 
 
 if __name__ == "__main__":

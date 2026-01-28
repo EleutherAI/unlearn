@@ -90,7 +90,9 @@ class UnlearningTrainer(Trainer):
 
 class RRTrainer(UnlearningTrainer):
 
-    def __init__(self, *args, is_peft_model=True, use_muon=False, reference_model=None, **kwargs):
+    def __init__(
+        self, *args, is_peft_model=True, use_muon=False, reference_model=None, **kwargs
+    ):
         super().__init__(*args, use_muon=use_muon, **kwargs)
         self.is_peft_model = is_peft_model
         self.reference_model = reference_model
@@ -170,7 +172,9 @@ class RRTrainer(UnlearningTrainer):
             if retain_coeff > 0 and self.reference_model is not None:
                 self.reference_model.eval()
                 with torch.no_grad():
-                    orig_retain_outputs = self.reference_model(**retain_inputs_dict)[module]
+                    orig_retain_outputs = self.reference_model(**retain_inputs_dict)[
+                        module
+                    ]
                     orig_retain_hidden = torch.stack(orig_retain_outputs).detach()
                     orig_retain_hidden *= broadcast_retain_mask
                     del orig_retain_outputs
@@ -376,7 +380,9 @@ if __name__ == "__main__":
     use_muon = args.optimizer == "muon"
     if use_muon:
         print("Using full SFT with Muon optimizer")
-        print(f"Muon LR: {args.muon_lr}, Adam LR: {args.adam_lr}, Momentum: {args.muon_momentum}")
+        print(
+            f"Muon LR: {args.muon_lr}, Adam LR: {args.adam_lr}, Momentum: {args.muon_momentum}"
+        )
     else:
         print("Using full SFT with AdamW optimizer")
         print(f"AdamW LR: {args.adam_lr}")
@@ -385,7 +391,9 @@ if __name__ == "__main__":
     reference_model = None
     if args.retain_coef > 0:
         print("Loading frozen reference model for retain loss...")
-        reference_model, _ = get_model_and_tokenizer(args.model_name, revision=args.revision)
+        reference_model, _ = get_model_and_tokenizer(
+            args.model_name, revision=args.revision
+        )
         reference_model.eval()
         for param in reference_model.parameters():
             param.requires_grad = False
@@ -429,8 +437,16 @@ if __name__ == "__main__":
     )
 
     trainer = RRTrainer(
-        args, model, training_args, train_dataset, tokenizer, args.layers,
-        lens=lens, is_peft_model=False, use_muon=use_muon, reference_model=reference_model
+        args,
+        model,
+        training_args,
+        train_dataset,
+        tokenizer,
+        args.layers,
+        lens=lens,
+        is_peft_model=False,
+        use_muon=use_muon,
+        reference_model=reference_model,
     )
 
     model.train()

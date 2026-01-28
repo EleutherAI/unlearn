@@ -6,7 +6,7 @@ This can be used without running the full unlearning pipeline.
 import argparse
 
 import torch
-from datasets import load_dataset, concatenate_datasets
+from datasets import concatenate_datasets, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from unlearn.probe import (
@@ -158,7 +158,12 @@ def main():
     ]
     retain_text_dataset = retain_text_dataset.rename_column("page", "text")
     retain_text_dataset = retain_text_dataset.shuffle(seed=42).select(
-        range(min(args.num_train_examples + args.num_eval_examples, len(retain_text_dataset)))
+        range(
+            min(
+                args.num_train_examples + args.num_eval_examples,
+                len(retain_text_dataset),
+            )
+        )
     )
 
     print("Tokenizing wikitext...")
