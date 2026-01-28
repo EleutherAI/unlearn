@@ -96,23 +96,28 @@ sbatch script.sbatch /path/to/model
 ```
 
 ```bash
-  #!/bin/bash
-  #SBATCH --job-name=mmlu-eval
-  #SBATCH --nodes=1
-  #SBATCH --exclusive
-  #SBATCH --gpus-per-node=4
-  #SBATCH --time=1:00:00
-  #SBATCH --output=/home/a6a/lucia.a6a/unlearn/runs/mmlu-eval-%j.out
+#!/bin/bash
+#SBATCH --job-name=mmlu-eval
+#SBATCH --nodes=1
+#SBATCH --exclusive
+#SBATCH --gpus-per-node=4
+#SBATCH --time=1:00:00
+#SBATCH --output=/home/a6a/lucia.a6a/unlearn/runs/mmlu-eval-%j.out
 
-  source /home/a6a/lucia.a6a/miniforge3/etc/profile.d/conda.sh
-  conda activate <env_name>
-  module load cuda/12.6
+source /home/a6a/lucia.a6a/miniforge3/etc/profile.d/conda.sh
+conda activate <env_name>
+module load cuda/12.6
 
-  accelerate launch --num_processes 4 -m lm_eval --model hf \
-      --model_args pretrained=$1,dtype=bfloat16 \
-      --tasks mmlu \
-      --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
-      --batch_size auto
+accelerate launch --num_processes 4 -m lm_eval --model hf \
+    --model_args pretrained=$1,dtype=bfloat16 \
+    --tasks wmdp_bio_robust \
+    --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
+    --batch_size auto
+
+accelerate launch --num_processes 4 -m lm_eval --model hf \
+    --model_args pretrained=$1,dtype=bfloat16 \
+    --tasks mmlu \
+    --batch_size auto
 ```
 
 ## Transformer Probe

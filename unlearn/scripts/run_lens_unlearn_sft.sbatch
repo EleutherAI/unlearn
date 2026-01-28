@@ -8,8 +8,13 @@
 #SBATCH --output=runs/lens-sft-%j.out
 
 # Get repository root
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Use SLURM_SUBMIT_DIR if available, otherwise fall back to script location
+if [ -n "$SLURM_SUBMIT_DIR" ]; then
+    REPO_ROOT="$SLURM_SUBMIT_DIR"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+fi
 
 # Arguments: 
 NUM_TRAIN_EXAMPLES=${1:-1024}
@@ -57,33 +62,30 @@ fi
 
 NUM_GPUS=4
 
-echo "===== Running Full SFT (no LoRA) ====="
-SAVE_NAME="lens_ex${NUM_TRAIN_EXAMPLES}_sft"
-CMD="torchrun --nproc_per_node=$NUM_GPUS -m unlearn.algorithm.lens_unlearn_sft \
-    --lens_path=$LENS_DIR \
-    --num_train_examples=$NUM_TRAIN_EXAMPLES \
-    --remove_coef=5.0 \
-    --retain_coef=5.0 \
-    --pdbs=2 \
-    --lr=1e-5 \
-    --model_name=EleutherAI/deep-ignorance-unfiltered \
-    --save_name=$SAVE_NAME"
+# Model checkpoint to evaluate
+MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_lens_ex1024_sft_sft"
 
+if [ ! -d "$MODEL_PATH" ]; then
+    echo "ERROR: Model checkpoint not found at $MODEL_PATH"
+    exit 1
+fi
 
-echo "Command: $CMD"
+echo "Evaluating model: $MODEL_PATH"
 echo ""
 
 # Run Eval
+accelerate launch --num_processes 4 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL_PATH,dtype=bfloat16 \
+    --tasks wmdp_bio_robust \
+    --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
+    --batch_size auto
 
 
-$CMD
-
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -ne 0 ]; then
-    echo "ERROR: Training failed with exit code $EXIT_CODE"
-    exit $EXIT_CODE
-fi
+accelerate launch --num_processes 4 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL_PATH,dtype=bfloat16 \
+    --tasks mmlu \
+    --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
+    --batch_size auto
 
 echo "============================================"
 echo "Completed: $(date)"
