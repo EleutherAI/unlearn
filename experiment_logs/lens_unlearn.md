@@ -54,6 +54,7 @@ Unlearning via tuned lens activations - training model to match lens-projected (
 | 1024     | 32    | 5.0         | 5.0         | 1e-5    | OOM          | -           | -         | Job 2042113: CUDA OOM at step 1/32 |
 | 1024     | 32    | 0.0         | 5.0         | 1e-5    | -            | 42.86%      | timeout   | Job 2042124: No unlearning (baseline=42.97%), MMLU eval timed out |
 | 1024     | 32    | 0.0         | 5.0         | 1e-5    | -            | 42.17%      | 44.14%    | Job 2042919: SFT no retain (insufficient lr) |
+| 1024     | 32    | 5.0         | 5.0         | 1e-5    | eval fail    | -           | -         | Job 2045791: FSDP+retain working, model save error (retain_loss=30, forget_loss=2.18) |
 
 ## Tampering Resistance (Finetune Attack)
 

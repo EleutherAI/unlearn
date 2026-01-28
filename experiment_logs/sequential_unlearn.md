@@ -32,6 +32,15 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 | 4 | 28→16 (step 4) | 40 | 5 | 0.2961 | 0.4410 | |
 | 5 | 28→16 (step 4) | 50 | 5 | 0.2684 | 0.4437 | Below random (0.25) |
 
+## Retain Loss Ablation
+
+| Run | retain_loss_type | remove_coef | retain_coef | WMDP Bio Robust | MMLU | Notes |
+|-----|------------------|-------------|-------------|-----------------|------|-------|
+| 5 | L2 (hidden states) | 50 | 5 | 0.2684 | 0.4437 | Best overall |
+| 6 | KL (logits) | 50 | 5 | 0.2673 | 0.2295 | MMLU collapsed to near-random |
+
+**Conclusion**: L2 norm on hidden states is superior to KL divergence on logits. KL divergence achieves similar unlearning but catastrophically degrades general capabilities.
+
 ## Hyperparameters (all runs)
 
 | Parameter | Value |
@@ -54,3 +63,4 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 2. MMLU degradation remains minimal even at rm50 (~1% drop from baseline)
 3. Best result: rm50 achieves 0.2684 WMDP with 0.4437 MMLU
 4. Random chance for 4-way MCQ is 0.25
+5. L2 retain loss vastly outperforms KL divergence for preserving capabilities
