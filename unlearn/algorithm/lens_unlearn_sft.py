@@ -17,9 +17,9 @@ from transformers import (
 from transformers.trainer_utils import seed_worker
 from tuned_lens import TunedLens
 
+from unlearn.utils.hook import ActivationCapture
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer
-from unlearn.utils.hook import ActivationCapture
 
 
 class UnlearningTrainer(Trainer):
@@ -72,27 +72,21 @@ class UnlearningTrainer(Trainer):
             dataloader_params["worker_init_fn"] = seed_worker
             dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
-        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
+        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))  # type: ignore
 
 
 class SFTUnlearningTrainer(UnlearningTrainer):
 
-    def __init__(self, *args, frozen_ref_model=None, target_modules: list[str], model, **kwargs):
+    def __init__(
+        self, *args, frozen_ref_model=None, target_modules: list[str], model, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.frozen_ref_model = frozen_ref_model
 
-        target_modules = []
-        for name, layer in model.named_modules():
-            print(name, "dsad")
-            parts = name.split('.')
-
-            # If the last part of the name is a number, it's a main Layer Block
-            if parts[-1].isdigit():
-                print(f"Hooking Residual Stream at: {name}")
-                target_modules.append(name)
-
         self.target_modules = target_modules
-        self.act_capturer = ActivationCapture(model, target_modules)
+        self.act_capturer = ActivationCapture(
+            model, target_modules, accelerator=self.accelerator
+        )
         self.act_capturer.register()
 
     def compute_loss(
@@ -104,9 +98,9 @@ class SFTUnlearningTrainer(UnlearningTrainer):
             else next(model.parameters()).device
         )
 
-        retain_input_ids = inputs.get("input_ids").to(target_device)
-        forget_input_ids = inputs.get("bio_remove_input_ids").to(target_device)
-        forget_attention_mask = inputs.get("bio_remove_attention_mask").to(
+        retain_input_ids = inputs.get("input_ids").to(target_device)  # type: ignore
+        forget_input_ids = inputs.get("bio_remove_input_ids").to(target_device)  # type: ignore
+        forget_attention_mask = inputs.get("bio_remove_attention_mask").to(  # type: ignore
             target_device
         )
 
@@ -127,47 +121,59 @@ class SFTUnlearningTrainer(UnlearningTrainer):
 
         ### Retain loss - KL divergence
         if retain_coeff > 0 and self.frozen_ref_model is not None:
-            # Get logits from frozen model
+            # Get logits from frozen model (WHICH IS ON CPU)
             with torch.no_grad():
-                ref_logits = self.frozen_ref_model(retain_input_ids, attention_mask=None).logits
+                # Run forward pass on CPU
+                # ref_inputs_cpu = retain_input_ids.to("cpu")
+                ref_outputs = self.frozen_ref_model(
+                    retain_input_ids, attention_mask=None
+                )
+                ref_logits = ref_outputs.logits.to(target_device)
 
-            # Get current model logits
             current_logits = model(
                 input_ids=retain_input_ids,
                 attention_mask=None,
             ).logits
+
             self.act_capturer.clear()
-            # KL divergence
+
+            # KL divergence (Both tensors are now on GPU)
             retain_loss = torch.nn.functional.kl_div(
                 input=torch.nn.functional.log_softmax(current_logits, dim=-1),
                 target=torch.nn.functional.softmax(ref_logits, dim=-1),
-                reduction='batchmean'
+                reduction="batchmean",
             )
         else:
             retain_loss = torch.tensor(0.0, device=target_device)
 
         ### Forget loss - entropy maximization via tuned lens (using ActivationCapture)
         if forget_coeff > 0:
-            model(
+            outputs = model(
                 input_ids=forget_input_ids,
                 attention_mask=forget_attention_mask,
             )
 
-            self.act_capturer.clear()
+            # Connect the loss to the output to trigger FSDP's bwd books
+            if hasattr(outputs, "logits"):
+                dummy_loss = outputs.logits.mean() * 0.0
+            elif isinstance(outputs, tuple):
+                dummy_loss = outputs[0].mean() * 0.0
+            else:
+                dummy_loss = outputs.mean() * 0.0
 
             layer_losses = []
-            lens_device = next(self.lens.parameters()).device # type: ignores
+            lens_device = next(self.lens.parameters()).device  # type: ignore
             vocab_size = None
-            for mod in self.target_modules
+            for mod in self.target_modules:
                 if mod not in self.act_capturer.activations:
                     continue
 
-                layer_idx = int(name.split('.')[-1])
-                print(layer_idx, name)
+                layer_idx = int(mod.split(".")[-1])
 
                 hidden = self.act_capturer.activations[mod]
                 hidden_bf16 = hidden.to(device=lens_device, dtype=torch.bfloat16)
 
+                assert self.lens is not None
                 lens_logits = self.lens(hidden_bf16, idx=layer_idx)
                 batch_size, seq_len, vocab_size = lens_logits.shape
 
@@ -197,6 +203,8 @@ class SFTUnlearningTrainer(UnlearningTrainer):
             else:
                 forget_loss = torch.tensor(0.0, device=target_device)
                 mean_entropy = torch.tensor(0.0)
+
+            forget_loss = forget_loss + dummy_loss
         else:
             forget_loss = torch.tensor(0.0, device=target_device)
             mean_entropy = torch.tensor(0.0)
@@ -325,15 +333,33 @@ if __name__ == "__main__":
     # Load frozen reference model on CPU for retain loss
     frozen_ref_model = None
     if args.retain_coef > 0:
-        print("Loading frozen reference model on CPU for retain loss...")
+        # 1. Get the specific GPU index for this process
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+
+        # OPTIONAL: Use 4-bit quantization to save massive VRAM (Recommended)
+        # Requires: pip install bitsandbytes
+        try:
+            from transformers import BitsAndBytesConfig
+
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_quant_type="nf4",
+            )
+            print("Using 4-bit quantization for reference model to save memory.")
+        except ImportError:
+            bnb_config = None
+            print("bitsandbytes not found, loading in full bf16.")
+
         frozen_ref_model = AutoModelForCausalLM.from_pretrained(
             args.model_name,
             torch_dtype=torch.bfloat16,
-            device_map="cpu",
+            quantization_config=bnb_config,
+            # CRITICAL: Map everything to the CURRENT GPU only.
+            device_map={"": local_rank},
         )
+
         frozen_ref_model.eval()
-        for param in frozen_ref_model.parameters():
-            param.requires_grad = False
 
     # Enable gradients on training model
     for param in model.parameters():
@@ -359,7 +385,7 @@ if __name__ == "__main__":
         per_device_eval_batch_size=args.pdbs,
         num_train_epochs=args.epochs,
         weight_decay=0.01,
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
         bf16=True,
         max_grad_norm=1.0,
         save_strategy="no",
@@ -375,7 +401,7 @@ if __name__ == "__main__":
         lens=lens,
         frozen_ref_model=frozen_ref_model,
         model=model,
-        target_modules="gpt"
+        target_modules=[f"gpt_neox.layers.{i}" for i in [8, 12, 16, 20, 24, 28, 31]],
     )
 
     model.train()
