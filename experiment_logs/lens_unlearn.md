@@ -36,11 +36,14 @@ Unlearning via tuned lens activations - training model to match lens-projected (
 
 ### SFT + AdamW Optimizer
 
-| examples | steps | retain_coef | remove_coef | adam_lr | WMDP Bio (↓) | MMLU STEM | Notes |
-|----------|-------|-------------|-------------|---------|--------------|-----------|-------|
-| 1024     | 32    | 5.0         | 2.0         | 1e-3    | 23.41%       | 24.64%    | MMLU catastrophic |
-| 1024     | 32    | 20.0        | 2.0         | 1e-3    | 26.55%       | 26.20%    | Still MMLU damage |
-| 1024     | 32    | 50.0        | 2.0         | 1e-3    | 24.74%       | 21.31%    | Higher retain makes MMLU worse |
+| examples | steps | retain_coef | remove_coef | adam_lr | WMDP Bio (↓) | MMLU STEM | MMLU | Notes |
+|----------|-------|-------------|-------------|---------|--------------|-----------|------|-------|
+| 1024     | 32    | 5.0         | 2.0         | 1e-3    | 23.41%       | 24.64%    | 25.15% | MMLU catastrophic |
+| 1024     | 32    | 20.0        | 2.0         | 1e-3    | 26.55%       | 26.20%    | 25.47% | |
+| 1024     | 32    | 50.0        | 2.0         | 1e-3    | 24.74%       | 21.31%    | - | |
+| 1024     | 32    | 200.0       | 2.0         | 1e-3    | 24.35%       | 21.69%    | - | |
+| 1024     | 32    | 500.0       | 2.0         | 1e-3    | 24.27%       | 28.45%    | - | MMLU improving |
+| 1024     | 32    | 1000.0      | 2.0         | 1e-3    | pending      | pending   | - | |
 
 ## Tampering Resistance (Finetune Attack)
 

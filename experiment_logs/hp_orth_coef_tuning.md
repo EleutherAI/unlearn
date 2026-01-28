@@ -10,8 +10,6 @@ Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 |-------|----------|-----------|-----------|
 | Target model (to unlearn) | 42.97% | 36.85% | ~43% |
 
-*Note: Results below use MMLU STEM unless otherwise noted.*
-
 ## Metric Interpretation
 
 **orth_loss**: Average pairwise cosine similarity between forget item representations in each batch. Measures whether forget items collapse to the same direction or remain diverse.
@@ -21,15 +19,15 @@ Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 
 ## Results
 
-| remove | orth | retain | steps | WMDP | MMLU | retain_loss | cb_loss | orth_loss | Notes |
-|--------|------|--------|-------|------|------|-------------|---------|-----------|-------|
-| 15     | 5    | 2      | 32    | -    | -    | -           | -       | -         | Not trained |
-| 23     | 10   | 2      | 32    | -    | -    | -           | -       | -         | Model incomplete |
-| 30     | 15   | 2      | 32    | 26.55% | 35.14% | 4.30      | 0.18    | 0.99      | |
-| 30     | 15   | 2      | 512   | 24.12% | 22.14% | 1.08      | 0.015   | 0.05      | Severe capability damage |
-| 40     | 20   | 2      | 32    | 26.63% | 35.39% | -         | -       | -         | Log truncated |
-| 15     | 15   | 2      | 512   | 23.88% | 25.98% | 1.01      | 0.03    | 0.04      | Capability damage |
-| 30     | 100  | 2      | 32    | 39.2% | 36.25% | 3.52      | 0.35    | 0.33      | Preserved capability, worse unlearning |
-| 30     | 100  | 2      | 256   | 29.85% | 34.92% | 2.95      | 0.10    | 0.09      | Good balance |
-| 30     | 15   | 2      | 64    | 27.73% | 36.98% | 3.46      | 0.06    | 0.52      | Good balance, near-baseline MMLU |
-| 30     | 15   | 2      | 128   | 24.35% | 30.03% | 2.15      | 0.02    | 0.25      | Better orth, some capability loss |
+| remove | orth | retain | steps | WMDP | MMLU STEM | MMLU | retain_loss | cb_loss | orth_loss | Notes |
+|--------|------|--------|-------|------|-----------|------|-------------|---------|-----------|-------|
+| 15     | 5    | 2      | 32    | -    | -         | -    | -           | -       | -         | Not trained |
+| 23     | 10   | 2      | 32    | -    | -         | -    | -           | -       | -         | Model incomplete |
+| 30     | 15   | 2      | 32    | 26.55% | 35.14%  | -    | 4.30        | 0.18    | 0.99      | |
+| 30     | 15   | 2      | 512   | 24.12% | 22.14%  | -    | 1.08        | 0.015   | 0.05      | Severe capability damage |
+| 40     | 20   | 2      | 32    | 26.63% | 35.39%  | -    | -           | -       | -         | Log truncated |
+| 15     | 15   | 2      | 512   | 23.88% | 25.98%  | -    | 1.01        | 0.03    | 0.04      | Capability damage |
+| 30     | 100  | 2      | 32    | 39.2%  | 36.25%  | -    | 3.52        | 0.35    | 0.33      | Preserved capability, worse unlearning |
+| 30     | 100  | 2      | 256   | 29.85% | 34.92%  | 42.18% | 2.95        | 0.10    | 0.09      | Good balance |
+| 30     | 15   | 2      | 64    | 27.73% | 36.98%  | -    | 3.46        | 0.06    | 0.52      | Good balance, near-baseline MMLU |
+| 30     | 15   | 2      | 128   | 24.35% | 30.03%  | -    | 2.15        | 0.02    | 0.25      | Better orth, some capability loss |
