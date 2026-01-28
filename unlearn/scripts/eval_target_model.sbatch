@@ -47,7 +47,7 @@ lm_eval --model hf \
 echo "===== MMLU STEM Eval ====="
 lm_eval --model hf \
     --model_args pretrained=$MODEL_NAME \
-    --tasks mmlu_stem \
+    --tasks mmlu \
     --batch_size 8
 
 echo "============================================"

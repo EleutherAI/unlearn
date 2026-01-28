@@ -59,16 +59,16 @@ python -m unlearn.algorithm.orth_circuit_breakers \
 MODEL_PATH="models/EleutherAI/deep-ignorance-unfiltered_${SAVE_NAME}"
 
 echo "===== WMDP Eval ====="
-lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH \
+accelerate launch --num_processes 1 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL_PATH,dtype=bfloat16 \
     --tasks wmdp_bio \
-    --batch_size 8
+    --batch_size auto
 
 echo "===== MMLU Eval ====="
-lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH \
-    --tasks mmlu_stem \
-    --batch_size 8
+accelerate launch --num_processes 1 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL_PATH,dtype=bfloat16 \
+    --tasks mmlu \
+    --batch_size auto
 
 echo "============================================"
 echo "Completed: $(date)"

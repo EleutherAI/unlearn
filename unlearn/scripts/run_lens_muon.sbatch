@@ -17,13 +17,17 @@ ADAM_LR=${ADAM_LR:-${3:-3e-4}}
 REMOVE_COEF=${REMOVE_COEF:-${4:-5.0}}
 RETAIN_COEF=${RETAIN_COEF:-${5:-0.0}}
 PDBS=${PDBS:-2}
+OPTIMIZER=${OPTIMIZER:-muon}
+EPOCHS=${EPOCHS:-1}
 
 echo "============================================"
-echo "Lens Unlearning with Muon Optimizer"
+echo "Lens Unlearning with $OPTIMIZER Optimizer"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $(hostname)"
 echo "Started: $(date)"
+echo "optimizer: $OPTIMIZER"
 echo "num_train_examples: $NUM_TRAIN_EXAMPLES"
+echo "epochs: $EPOCHS"
 echo "muon_lr: $MUON_LR"
 echo "adam_lr: $ADAM_LR"
 echo "remove_coef: $REMOVE_COEF"
@@ -63,10 +67,14 @@ if [ ! -f "$LENS_DIR/params.pt" ]; then
     exit 1
 fi
 
-SAVE_NAME="lens_ex${NUM_TRAIN_EXAMPLES}_muon${MUON_LR}_rm${REMOVE_COEF}_rt${RETAIN_COEF}"
+if [ "$OPTIMIZER" = "adamw" ]; then
+    SAVE_NAME="lens_ex${NUM_TRAIN_EXAMPLES}_adamw_lr${ADAM_LR}_rm${REMOVE_COEF}_rt${RETAIN_COEF}_ep${EPOCHS}"
+else
+    SAVE_NAME="lens_ex${NUM_TRAIN_EXAMPLES}_muon${MUON_LR}_rm${REMOVE_COEF}_rt${RETAIN_COEF}_ep${EPOCHS}"
+fi
 
 NUM_GPUS=4
-echo "===== Training with Muon ====="
+echo "===== Training with $OPTIMIZER ====="
 CMD="torchrun --nproc_per_node=$NUM_GPUS -m unlearn.algorithm.lens_unlearn_muon \
     --lens_path=$LENS_DIR \
     --num_train_examples=$NUM_TRAIN_EXAMPLES \
@@ -75,6 +83,8 @@ CMD="torchrun --nproc_per_node=$NUM_GPUS -m unlearn.algorithm.lens_unlearn_muon 
     --muon_lr=$MUON_LR \
     --adam_lr=$ADAM_LR \
     --pdbs=$PDBS \
+    --epochs=$EPOCHS \
+    --optimizer=$OPTIMIZER \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_name=$SAVE_NAME"
 
@@ -89,7 +99,7 @@ if [ $EXIT_CODE -ne 0 ]; then
     exit $EXIT_CODE
 fi
 
-MODEL_PATH="./models/EleutherAI/deep-ignorance-unfiltered_${SAVE_NAME}_muon"
+MODEL_PATH="./models/EleutherAI/deep-ignorance-unfiltered_${SAVE_NAME}"
 
 echo "===== WMDP Eval ====="
 lm_eval --model hf \
@@ -100,7 +110,7 @@ lm_eval --model hf \
 echo "===== MMLU STEM Eval ====="
 lm_eval --model hf \
     --model_args pretrained=$MODEL_PATH \
-    --tasks mmlu_stem \
+    --tasks mmlu \
     --batch_size 8
 
 echo "============================================"

@@ -90,11 +90,11 @@ def main():
     print("=" * 60)
     mmlu_results = simple_evaluate(
         model=lm,
-        tasks=["mmlu_stem"],
+        tasks=["mmlu"],
     )
 
-    if "results" in mmlu_results and "mmlu_stem" in mmlu_results["results"]:
-        task_results = mmlu_results["results"]["mmlu_stem"]
+    if "results" in mmlu_results and "mmlu" in mmlu_results["results"]:
+        task_results = mmlu_results["results"]["mmlu"]
         print("\nMMLU STEM Results:")
         for metric, value in task_results.items():
             if isinstance(value, float):
@@ -117,9 +117,9 @@ def main():
         if wmdp_acc is not None:
             print(f"WMDP Bio Robust: {wmdp_acc*100:.2f}% ± {wmdp_stderr*100:.2f}%")
 
-    if "results" in mmlu_results and "mmlu_stem" in mmlu_results["results"]:
-        mmlu_acc = mmlu_results["results"]["mmlu_stem"].get("acc,none")
-        mmlu_stderr = mmlu_results["results"]["mmlu_stem"].get("acc_stderr,none")
+    if "results" in mmlu_results and "mmlu" in mmlu_results["results"]:
+        mmlu_acc = mmlu_results["results"]["mmlu"].get("acc,none")
+        mmlu_stderr = mmlu_results["results"]["mmlu"].get("acc_stderr,none")
         if mmlu_acc is not None:
             print(f"MMLU STEM: {mmlu_acc*100:.2f}% ± {mmlu_stderr*100:.2f}%")
 

@@ -314,6 +314,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--epochs", type=int, default=1, help="Number of training epochs"
     )
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        default="muon",
+        choices=["muon", "adamw"],
+        help="Optimizer to use: muon (MuonAdamW hybrid) or adamw (pure AdamW)",
+    )
 
     args = parser.parse_args()
 
@@ -366,8 +373,13 @@ if __name__ == "__main__":
         param.requires_grad = False
     print(f"Loaded lens with {len(lens)} layer translators (frozen)")
 
-    print("Using full SFT with Muon optimizer")
-    print(f"Muon LR: {args.muon_lr}, Adam LR: {args.adam_lr}, Momentum: {args.muon_momentum}")
+    use_muon = args.optimizer == "muon"
+    if use_muon:
+        print("Using full SFT with Muon optimizer")
+        print(f"Muon LR: {args.muon_lr}, Adam LR: {args.adam_lr}, Momentum: {args.muon_momentum}")
+    else:
+        print("Using full SFT with AdamW optimizer")
+        print(f"AdamW LR: {args.adam_lr}")
 
     # Load frozen reference model for retain loss (only if retain_coef > 0)
     reference_model = None
@@ -397,9 +409,13 @@ if __name__ == "__main__":
         f"Grad Acc steps: {grad_acc_steps}."
     )
 
+    # Set learning rate based on optimizer choice
+    # For Muon: lr is overridden by custom optimizer
+    # For AdamW: use adam_lr from args
+    lr = args.muon_lr if use_muon else args.adam_lr
     training_args = TrainingArguments(
         output_dir="./results",
-        learning_rate=args.muon_lr,  # Will be overridden by custom optimizer
+        learning_rate=lr,
         gradient_accumulation_steps=grad_acc_steps,
         per_device_train_batch_size=args.pdbs,
         per_device_eval_batch_size=args.pdbs,
@@ -414,17 +430,18 @@ if __name__ == "__main__":
 
     trainer = RRTrainer(
         args, model, training_args, train_dataset, tokenizer, args.layers,
-        lens=lens, is_peft_model=False, use_muon=True, reference_model=reference_model
+        lens=lens, is_peft_model=False, use_muon=use_muon, reference_model=reference_model
     )
 
     model.train()
     trainer.train()
 
     if args.save_name:
-        args.save_name = f"{args.save_name}_muon"
         if "models/" in args.model_name:
             args.model_name = args.model_name.replace("models/", "")
-        model.save_pretrained(f"./models/{args.model_name + '_' + args.save_name}")
-        tokenizer.save_pretrained(f"./models/{args.model_name + '_' + args.save_name}")
+        save_path = f"./models/{args.model_name}_{args.save_name}"
+        model.save_pretrained(save_path)
+        tokenizer.save_pretrained(save_path)
+        print(f"Model saved to: {save_path}")
 
     print("Done :)")

@@ -14,7 +14,7 @@ class EvalCallback(TrainerCallback):
         tokenizer,
         run_every_steps=50,
         ref_model=None,
-        tasks=["wmdp_bio_robust", "mmlu_stem", "wmdp_bio_cloze_verified"],
+        tasks=["wmdp_bio_robust", "mmlu", "wmdp_bio_cloze_verified"],
         include_path=None,
     ):
         self.tokenizer = tokenizer

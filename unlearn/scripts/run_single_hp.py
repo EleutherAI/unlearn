@@ -109,7 +109,7 @@ def main():
     # Step 3: Evaluate MMLU
     print(f"\n[{datetime.now()}] Starting MMLU evaluation...")
     mmlu_cmd = [
-        "python", "-m", "unlearn.evaluation.eval_mmlu_stem",
+        "python", "-m", "unlearn.evaluation.eval_mmlu",
         f"--model_path={model_save_path}",
         "--batch_size=8",
     ]

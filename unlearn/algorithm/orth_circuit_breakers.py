@@ -188,6 +188,7 @@ class RRTrainer(UnlearningTrainer):
         )
         retain_coeff = self.retain_coef * scheduled_coeff
         circuit_breaker_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
+        orth_coeff = self.orth_coef * (1 - 0.25 * scheduled_coeff)
 
         broadcast_retain_mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
         broadcast_cb_mask = circuit_breaker_attention_mask.unsqueeze(0).unsqueeze(-1)
@@ -328,7 +329,6 @@ class RRTrainer(UnlearningTrainer):
             
         capturer.remove() # Clean up
 
-        orth_coeff = self.orth_coef * (1 - 0.25 * scheduled_coeff)
         loss = (
             retain_coeff * retain_loss
             + circuit_breaker_coeff * circuit_breaker_loss

@@ -69,7 +69,7 @@ python bergson/unlearn/circuit_breaker/lorra.py \
 
 # Run evaluations
 echo "Running MMLU STEM evaluation..."
-python scripts/eval_mmlu_stem.py --model_path $output_dir --batch_size 8
+python scripts/eval_mmlu.py --model_path $output_dir --batch_size 8
 
 echo "Running WMDP Robust evaluation..."
 python scripts/eval_wmdp_robust.py --model_path $output_dir --batch_size 8

@@ -40,7 +40,7 @@ class GradDiffDataset(Dataset):
         print(f"Loaded {len(self.forget_data)} forget examples (WMDP bio)")
 
         # Load retain data (MMLU STEM)
-        self.retain_data = self._load_mmlu_stem(num_retain_examples)
+        self.retain_data = self._load_mmlu(num_retain_examples)
         print(f"Loaded {len(self.retain_data)} retain examples (MMLU STEM)")
 
         # Shuffle both
@@ -135,7 +135,7 @@ class GradDiffDataset(Dataset):
 
         return formatted_data
 
-    def _load_mmlu_stem(self, num_examples: int) -> list:
+    def _load_mmlu(self, num_examples: int) -> list:
         """Load MMLU STEM subjects for retain set."""
         formatted_data = []
 

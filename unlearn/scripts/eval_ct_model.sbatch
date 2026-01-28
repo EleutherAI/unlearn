@@ -2,7 +2,7 @@
 #SBATCH --job-name=eval-ct
 #SBATCH --nodes=1
 #SBATCH --exclusive
-#SBATCH --gpus-per-node=1
+#SBATCH --gpus-per-node=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=01:00:00
 #SBATCH --output=runs/eval-ct-%j.out
@@ -27,7 +27,7 @@ module load PrgEnv-cray
 module load cuda/12.6
 module load brics/nccl/2.21.5-1
 
-export CUDA_VISIBLE_DEVICES="0,"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 export CC=/usr/bin/gcc-12
 export CXX=/usr/bin/g++-12
 export PIP_CACHE_DIR="/projects/a6a/public/lucia/pip_cache"
@@ -38,16 +38,16 @@ huggingface-cli login --token $HF_TOKEN
 
 echo "===== WMDP Eval ====="
 lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH \
+    --model_args pretrained=$MODEL_PATH,parallelize=True \
     --tasks wmdp_bio_robust \
     --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
-    --batch_size 8
+    --batch_size 32
 
 echo "===== MMLU Eval ====="
-lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH \
-    --tasks mmlu_stem \
-    --batch_size 8
+HF_DATASETS_TRUST_REMOTE_CODE=1 lm_eval --model hf \
+    --model_args pretrained=$MODEL_PATH,parallelize=True,trust_remote_code=True \
+    --tasks mmlu \
+    --batch_size 32
 
 echo "============================================"
 echo "Completed: $(date)"

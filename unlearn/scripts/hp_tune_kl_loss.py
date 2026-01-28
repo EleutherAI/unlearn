@@ -95,7 +95,7 @@ def run_eval_wmdp(model_path: str, include_path: str) -> Optional[float]:
 def run_eval_mmlu(model_path: str) -> Optional[float]:
     """Run MMLU STEM evaluation."""
     cmd = [
-        sys.executable, "-m", "unlearn.evaluation.eval_mmlu_stem",
+        sys.executable, "-m", "unlearn.evaluation.eval_mmlu",
         "--model_path", model_path,
         "--batch_size", "4",
     ]

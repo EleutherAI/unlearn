@@ -109,7 +109,7 @@ def run_mmlu_eval(model_path: str, cfg: TuningConfig) -> dict | None:
     cmd = [
         "python",
         "-m",
-        "unlearn.evaluation.eval_mmlu_stem",
+        "unlearn.evaluation.eval_mmlu",
         f"--model_path={model_path}",
         "--batch_size=8",
     ]
