@@ -73,9 +73,9 @@ CMD="accelerate launch --config_file=$FSDP_CONFIG -m unlearn.algorithm.lens_unle
     --lens_path=$LENS_DIR \
     --num_train_examples=$NUM_TRAIN_EXAMPLES \
     --remove_coef=5.0 \
-    --retain_coef=5.0 \
+    --retain_coef=20.0 \
     --pdbs=1 \
-    --lr=1e-5 \
+    --lr=1e-3 \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_name=$SAVE_NAME"
 echo "Command: $CMD"

@@ -108,7 +108,7 @@ def run_eval_wmdp(model_path: str, include_path: str) -> Optional[float]:
 
 
 def run_eval_mmlu(model_path: str) -> Optional[float]:
-    """Run MMLU STEM evaluation."""
+    """Run MMLU evaluation."""
     cmd = [
         sys.executable,
         "-m",
@@ -218,24 +218,27 @@ def main():
 
         print(f"\n{'='*60}")
         print(
-            f"Results for retain_coef={hp_cfg.retain_coef}, remove_coef={hp_cfg.remove_coef}:"
+            f"Results for retain_coef={hp_cfg.retain_coef}, "
+            f"remove_coef={hp_cfg.remove_coef}:"
         )
         print(f"  WMDP Bio: {wmdp_score:.2f}%" if wmdp_score else "  WMDP Bio: N/A")
-        print(f"  MMLU STEM: {mmlu_score:.2f}%" if mmlu_score else "  MMLU STEM: N/A")
+        print(f"  MMLU: {mmlu_score:.2f}%" if mmlu_score else "  MMLU: N/A")
         print(f"{'='*60}")
 
     print("\n\n" + "=" * 80)
     print("SUMMARY")
     print("=" * 80)
     print(
-        f"{'retain_coef':<12} {'remove_coef':<12} {'WMDP Bio':<15} {'MMLU STEM':<15} {'Status':<15}"
+        f"{'retain_coef':<12} {'remove_coef':<12} {'WMDP Bio':<15} "
+        f"{'MMLU':<15} {'Status':<15}"
     )
     print("-" * 80)
     for r in results:
         wmdp_str = f"{r['wmdp']:.2f}%" if r["wmdp"] else "N/A"
         mmlu_str = f"{r['mmlu']:.2f}%" if r["mmlu"] else "N/A"
         print(
-            f"{r['retain_coef']:<12} {r['remove_coef']:<12} {wmdp_str:<15} {mmlu_str:<15} {r['status']:<15}"
+            f"{r['retain_coef']:<12} {r['remove_coef']:<12} {wmdp_str:<15} "
+            f"{mmlu_str:<15} {r['status']:<15}"
         )
 
 

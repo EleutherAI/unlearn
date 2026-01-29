@@ -3,7 +3,7 @@ from typing import Dict
 
 import torch
 import transformers
-from datasets import load_dataset
+from datasets import get_dataset_config_names, load_dataset
 from torch.utils.data import Dataset
 
 random.seed(0)
@@ -12,9 +12,9 @@ random.seed(0)
 class GradDiffDataset(Dataset):
     """Dataset for gradient difference unlearning.
 
-    Loads WMDP bio (forget) and MMLU STEM (retain) data formatted for
+    Loads WMDP bio (forget) and MMLU (retain) data formatted for
     next-token prediction. The training loop will:
-    - Minimize loss on retain data (preserve STEM capability)
+    - Minimize loss on retain data (preserve MMLU capability)
     - Maximize loss on forget data (unlearn bio hazard knowledge)
     """
 
@@ -39,9 +39,9 @@ class GradDiffDataset(Dataset):
         self.forget_data = self._load_wmdp_bio(num_forget_examples)
         print(f"Loaded {len(self.forget_data)} forget examples (WMDP bio)")
 
-        # Load retain data (MMLU STEM)
+        # Load retain data (MMLU)
         self.retain_data = self._load_mmlu(num_retain_examples)
-        print(f"Loaded {len(self.retain_data)} retain examples (MMLU STEM)")
+        print(f"Loaded {len(self.retain_data)} retain examples (MMLU)")
 
         # Shuffle both
         random.shuffle(self.forget_data)
@@ -136,33 +136,13 @@ class GradDiffDataset(Dataset):
         return formatted_data
 
     def _load_mmlu(self, num_examples: int) -> list:
-        """Load MMLU STEM subjects for retain set."""
+        """Load MMLU subjects for retain set."""
         formatted_data = []
 
-        # STEM subjects in MMLU
-        stem_subjects = [
-            "abstract_algebra",
-            "anatomy",
-            "astronomy",
-            "college_biology",
-            "college_chemistry",
-            "college_computer_science",
-            "college_mathematics",
-            "college_physics",
-            "computer_security",
-            "conceptual_physics",
-            "electrical_engineering",
-            "elementary_mathematics",
-            "high_school_biology",
-            "high_school_chemistry",
-            "high_school_computer_science",
-            "high_school_mathematics",
-            "high_school_physics",
-            "high_school_statistics",
-            "machine_learning",
-        ]
+        # Get all MMLU subsets
+        subjects = get_dataset_config_names("cais/mmlu")
 
-        for subject in stem_subjects:
+        for subject in subjects:
             try:
                 # Try auxiliary_train split first (larger), then test
                 for split in ["auxiliary_train", "test", "validation"]:

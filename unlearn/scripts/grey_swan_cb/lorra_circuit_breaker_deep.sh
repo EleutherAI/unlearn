@@ -83,7 +83,7 @@ $PYTHON bergson/unlearn/circuit_breaker/lorra_deep.py \
     --sc_train_seq_type all_text
 
 # Run evaluations
-echo "Running MMLU STEM evaluation..."
+echo "Running MMLU evaluation..."
 $PYTHON scripts/eval_mmlu.py --model_path $output_dir --batch_size 8
 
 echo "Running WMDP Robust evaluation..."

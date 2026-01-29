@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate the baseline checkpoint model on WMDP Bio Robust and MMLU STEM."""
+"""Evaluate the baseline checkpoint model on WMDP Bio Robust and MMLU."""
 
 import argparse
 import os
@@ -84,9 +84,9 @@ def main():
             else:
                 print(f"  {metric}: {value}")
 
-    # Run MMLU STEM
+    # Run MMLU
     print("\n" + "=" * 60)
-    print("Running MMLU STEM evaluation...")
+    print("Running MMLU evaluation...")
     print("=" * 60)
     mmlu_results = simple_evaluate(
         model=lm,
@@ -95,7 +95,7 @@ def main():
 
     if "results" in mmlu_results and "mmlu" in mmlu_results["results"]:
         task_results = mmlu_results["results"]["mmlu"]
-        print("\nMMLU STEM Results:")
+        print("\nMMLU Results:")
         for metric, value in task_results.items():
             if isinstance(value, float):
                 print(f"  {metric}: {value:.4f}")
@@ -121,7 +121,7 @@ def main():
         mmlu_acc = mmlu_results["results"]["mmlu"].get("acc,none")
         mmlu_stderr = mmlu_results["results"]["mmlu"].get("acc_stderr,none")
         if mmlu_acc is not None:
-            print(f"MMLU STEM: {mmlu_acc*100:.2f}% ± {mmlu_stderr*100:.2f}%")
+            print(f"MMLU: {mmlu_acc*100:.2f}% ± {mmlu_stderr*100:.2f}%")
 
 
 if __name__ == "__main__":

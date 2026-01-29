@@ -69,7 +69,7 @@ echo ""
 echo "Running evaluations..."
 echo ""
 
-echo "Running MMLU STEM evaluation..."
+echo "Running MMLU evaluation..."
 python scripts/eval_mmlu.py --model_path $output_dir --batch_size 8
 
 echo ""

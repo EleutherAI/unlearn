@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate a model on MMLU STEM benchmark using lm_eval."""
+"""Evaluate a model on MMLU benchmark using lm_eval."""
 
 import argparse
 

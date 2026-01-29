@@ -16,19 +16,13 @@ Find the boundary between:
 - **LoRA rank**: 16
 - **Target layers**: [5, 10, 15, 20, 25, 30]
 
-## Baselines
-
-| Model | WMDP Bio | MMLU STEM | MMLU |
-|-------|----------|-----------|------|
-| Target model (to unlearn) | 42.97% | 36.85% | ~43% |
-| Checkpoint (source activations) | 24.19% | 27.78% | ~28% |
-
 ## Results
 
 ### 1 Epoch (32 steps)
 
 | retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | WMDP Robust | MMLU STEM (deprecated) | MMLU |
 |-------------|-------------|----------------|---------|--------------|-------------|-----------|------|
+| -           | -           | -              | -       | 42.97%       | -           | 36.85%    | ~43% |
 | 1           | 3           | 0.247          | 6.30    | 29.84%       | 29.95%      | 32.03%    | 33.64% |
 | 3           | 5           | 0.203          | 6.30    | -            | -           | -         | -    |
 | 5           | 5           | 0.156          | 6.31    | 31.68%       | 31.80%      | 32.95%    | 35.81% |
@@ -43,6 +37,7 @@ Find the boundary between:
 
 | retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | MMLU STEM (deprecated) | MMLU |
 |-------------|-------------|----------------|---------|--------------|-----------|------|
+| -           | -           | -              | -       | 42.97%       | 36.85%    | ~43% |
 | 1           | 3           | 0.085          | 4.09    | 30.76%       | -         | -    |
 | 5           | 5           | 0.049          | 4.06    | 30.88%       | -         | -    |
 | 10          | 5           | 0.036          | 4.07    | 31.22%       | -         | -    |
@@ -51,18 +46,21 @@ Find the boundary between:
 
 | retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | MMLU STEM (deprecated) | MMLU |
 |-------------|-------------|----------------|---------|--------------|-----------|------|
+| -           | -           | -              | -       | 42.97%       | 36.85%    | ~43% |
 | 5           | 8           | 0.025          | 3.21    | 30.99%       | 32.57%    | 34.73% |
 
 ### 100 Epochs (3200 steps)
 
 | retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | WMDP Robust | MMLU STEM (deprecated) | MMLU |
 |-------------|-------------|----------------|---------|--------------|-------------|-----------|------|
+| -           | -           | -              | -       | 42.97%       | -           | 36.85%    | ~43% |
 | 5           | 8           | 0.022          | 2.44    | **29.72%**   | 29.38%      | 30.45%    | 31.66% |
 
 ### 1000 Epochs (8000 steps, 4x batch size)
 
 | retain_coef | remove_coef | retain_kl_loss | cb_loss | WMDP Bio (↓) | MMLU STEM (deprecated) | MMLU |
 |-------------|-------------|----------------|---------|--------------|-----------|------|
+| -           | -           | -              | -       | 42.97%       | 36.85%    | ~43% |
 | 5           | 8           | pending        | pending | pending      | pending   | pending |
 
 ### Observations

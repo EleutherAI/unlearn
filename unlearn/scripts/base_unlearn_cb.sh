@@ -16,7 +16,7 @@ HF_DATASETS_TRUST_REMOTE_CODE=1 accelerate launch --num_processes 4 -m unlearn.b
 OUTPUT_DIR="./models/EleutherAI/deep-ignorance-unfiltered_base_unlearn"
 INCLUDE_PATH="unlearn/lm_eval_tasks"
 
-echo "Running MMLU STEM evaluation..."
+echo "Running MMLU evaluation..."
 python -m unlearn.evaluation.eval_mmlu --model_path $OUTPUT_DIR --batch_size 8
 
 echo "Running WMDP Robust evaluation..."

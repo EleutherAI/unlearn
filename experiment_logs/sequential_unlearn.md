@@ -1,6 +1,6 @@
 # Sequential Unlearning Experiments
 
-Sequential back-to-front unlearning: for each layer L (from last to first), use the original model's layers L→N as a "probe" to compute forget loss while retaining activations close to original.
+Sequential back-to-front unlearning: for each layer L (from last to first), use the original model's layers L→N as a "probe" to compute forget loss while retaining performance on retain data by taking a retain loss through the updated model.
 
 ## Method
 
@@ -17,15 +17,11 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 - retain_coeff ramps from 0 → retain_coef over training
 - forget_coeff ramps from remove_coef → 0.75*remove_coef over training
 
-## Baseline
-- Model: EleutherAI/deep-ignorance-unfiltered
-- WMDP Bio Robust: ~0.44
-- MMLU: ~0.45
-
 ## Experiments
 
 | Run | Layers | remove_coef | retain_coef | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | ~0.44 | ~0.45 | Baseline |
 | 1 | 28→16 (step 4) | 10 | 5 | 0.3134 | 0.4479 | |
 | 2 | 28→16 (step 4) | 20 | 5 | 0.3076 | 0.4454 | |
 | 3 | 28→16 (step 4) | 30 | 5 | 0.2995 | 0.4458 | |
@@ -38,6 +34,7 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 
 | retain_loss_type | WMDP Bio Robust | MMLU | Notes |
 |------------------|-----------------|------|-------|
+| -                | ~0.44           | ~0.45 | Baseline |
 | L2 (hidden states) | 0.2684 | 0.4437 | Best L2 |
 | KL (logits) | 0.2673 | 0.2295 | MMLU collapsed |
 
@@ -45,6 +42,7 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 
 | remove_coef | retain_coef | WMDP Bio Robust | MMLU | Notes |
 |-------------|-------------|-----------------|------|-------|
+| - | - | ~0.44 | ~0.45 | Baseline |
 | 50 | 5 | 0.2673 | 0.2295 | Collapsed |
 | 20 | 10 | 0.2673 | - | Collapsed |
 | 30 | 10 | 0.2673 | - | Collapsed |
@@ -72,12 +70,25 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 | bf16 | True |
 | gradient_checkpointing | True |
 
+## Longer Training (10x examples)
+
+Training with 10240 examples instead of 1024:
+
+| Model | WMDP Bio Robust | MMLU | Notes |
+|-------|-----------------|------|-------|
+| Baseline (target) | ~0.44 | ~0.45 | - |
+| L2 (rm50/ret5) | 0.2535 | 0.2540 | MMLU collapsed (was 0.44 at 1x) |
+| KL (rm5/ret100) | 0.2673 | 0.2295 | No improvement |
+
+**Conclusion**: 10x longer training destroys capabilities for both methods. Hyperparameters don't transfer - would need much lower remove_coef for longer training.
+
 ## Tampering Attack Results
 
 Fine-tuning unlearned models on WMDP-Bio-Remove dataset to test recovery:
 
 | Model | Step 0 | Step 10 | Step 100 |
 |-------|--------|---------|----------|
+| Baseline (target) | ~0.44 | - | - |
 | L2 (rm50/ret5) | 0.2696 | 0.4055 | 0.4182 |
 | KL (rm5/ret100) | 0.2788 | 0.4078 | 0.4217 |
 
@@ -93,3 +104,4 @@ Plots saved in `runs/tamper_attack/` and `runs/tamper_kl_rm5_ret100/`.
 5. KL divergence requires very different hyperparameters than L2 (~10-20x higher retain, ~10x lower remove)
 6. Best KL result: rm5/ret100 achieves 0.2788 WMDP with 0.4195 MMLU
 7. Both L2 and KL models are equally vulnerable to tampering attacks
+8. **Training 10x longer destroys capabilities** - hyperparameters must be retuned for longer training
