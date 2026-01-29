@@ -6,7 +6,10 @@ import argparse
 import torch
 from lm_eval import simple_evaluate
 from lm_eval.models.huggingface import HFLM
+from lm_eval.tasks import TaskManager
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from unlearn.utils.utils import assert_type
 
 
 def main():
@@ -23,7 +26,15 @@ def main():
         default=8,
         help="Batch size for evaluation",
     )
+    parser.add_argument(
+        "--include_path",
+        type=str,
+        default=None,
+        help="Path to lm_eval_tasks",
+    )
     args = parser.parse_args()
+
+    tm = TaskManager(verbosity="INFO", include_path=args.include_path)
 
     print(f"Loading model from {args.model_path}")
     model = AutoModelForCausalLM.from_pretrained(
@@ -40,10 +51,12 @@ def main():
         batch_size=args.batch_size,
     )
 
-    results = simple_evaluate(
-        model=lm,
-        tasks=["mmlu"],
+    results = simple_evaluate(  # type: ignore
+        model=lm,  # type: ignore
+        tasks=["mmlu"],  # type: ignore
+        task_manager=tm,  # type: ignore
     )
+    results = assert_type(dict, results)
 
     print("\n" + "=" * 60)
     print("MMLU Results:")

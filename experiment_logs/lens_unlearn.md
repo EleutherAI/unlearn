@@ -15,7 +15,7 @@ Unlearning via tuned lens activations - training model to match lens-projected (
 
 | examples | epochs | steps | retain_coef | remove_coef | lr | batch | LoRA rank | retain_loss | forget_loss | WMDP Bio (↓) | WMDP Robust | MMLU STEM (deprecated) | MMLU | Notes |
 |----------|--------|-------|-------------|-------------|-----|-------|-----------|-------------|-------------|--------------|-------------|-----------|------|-------|
-| -        | -      | -     | -           | -           | -   | -     | -         | -           | -           | 42.97%       | -           | 36.85%    | ~43% | Baseline |
+| -        | -      | -     | -           | -           | -   | -     | -         | -           | -           | 42.97%       | 42.97%      | 36.85%    | 45.10% | Baseline |
 | 8192     | 1      | 256   | 5.0         | 5.0         | 1e-3 | 32   | 16        | 1.19        | 1.04        | **23.16%**   | 23.16%      | 34.57%    | **43.04%** | Best result |
 | 16384    | 2      | 1024  | 5.0         | 5.0         | 1e-3 | 32   | 16        | 0.74        | 1.03        | 23.50%       | -           | 23.88%    | -     | Over-unlearned, catastrophic MMLU loss |
 
@@ -23,7 +23,7 @@ Unlearning via tuned lens activations - training model to match lens-projected (
 
 | examples | steps | retain_coef | remove_coef | muon_lr | adam_lr | WMDP Bio (↓) | WMDP Robust | MMLU STEM (deprecated) | MMLU | Notes |
 |----------|-------|-------------|-------------|---------|---------|--------------|-------------|-----------|------|-------|
-| -        | -     | -           | -           | -       | -       | 42.97%       | ~44%        | 36.85%    | ~45% | Baseline |
+| -        | -     | -           | -           | -       | -       | 42.97%       | 42.97%      | 36.85%    | 45.10% | Baseline |
 | 1024     | 32    | 1.0         | 2.0         | 1e-3    | 3e-4    | 24.67%       | -           | 24.99%    | 28.71% | MMLU catastrophic |
 | 1024     | 32    | 2.0         | 1.0         | 1e-3    | 3e-4    | 29.93%       | -           | 31.34%    | 35.19% | Better balance |
 | 1024     | 32    | 1.5         | 1.5         | 1e-3    | 3e-4    | 33.23%       | 30.53%      | 30.99%    | **36.76%** | Best MMLU retention |
@@ -34,7 +34,7 @@ Unlearning via tuned lens activations - training model to match lens-projected (
 
 | examples | steps | retain_coef | remove_coef | adam_lr | WMDP Bio (↓) | WMDP Robust | MMLU | Notes |
 |----------|-------|-------------|-------------|---------|--------------|-------------|-----------|-------|
-| -        | -     | -           | -           | -       | 42.97%       | -           | ~43% | Baseline |
+| -        | -     | -           | -           | -       | 42.97%       | 42.97%      | 45.10% | Baseline |
 | 1024     | 32    | 0.0         | 5.0         | 1e-5    | -            | 42.86%      | timeout   | Job 2042124: No unlearning (baseline=42.97%), MMLU eval timed out |
 | 1024     | 32    | 0.0         | 5.0         | 1e-5    | -            | 42.17%      | 44.14%    | Job 2042919: SFT no retain (insufficient lr) |
 | 1024     | 32    | 5.0         | 5.0         | 1e-5    | -            | 43.43%      | 45.09%    | Job 2045965: No unlearning (lr too low), MMLU preserved |

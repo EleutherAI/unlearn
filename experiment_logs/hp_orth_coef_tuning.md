@@ -15,7 +15,7 @@ Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 
 | remove | orth | retain | steps | WMDP | WMDP Robust | MMLU STEM (deprecated) | MMLU | retain_loss | cb_loss | orth_loss | Notes |
 |--------|------|--------|-------|------|-------------|-----------|------|-------------|---------|-----------|-------|
-| -      | -    | -      | -     | 42.97% | -         | 36.85%  | ~43% | -           | -       | -         | Baseline |
+| -      | -    | -      | -     | 42.97% | 42.97%    | 36.85%  | 45.10% | -           | -       | -         | Baseline |
 | 15     | 5    | 2      | 32    | -    | -           | -         | -    | -           | -       | -         | Not trained |
 | 23     | 10   | 2      | 32    | -    | -           | -         | -    | -           | -       | -         | Model incomplete |
 | 30     | 15   | 2      | 32    | 26.55% | -         | 35.14%  | -    | 4.30        | 0.18    | 0.99      | |

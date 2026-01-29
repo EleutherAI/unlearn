@@ -21,7 +21,7 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 
 | Run | Layers | remove_coef | retain_coef | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----------------|------|-------|
-| - | - | - | - | ~0.44 | ~0.45 | Baseline |
+| - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 1 | 28→16 (step 4) | 10 | 5 | 0.3134 | 0.4479 | |
 | 2 | 28→16 (step 4) | 20 | 5 | 0.3076 | 0.4454 | |
 | 3 | 28→16 (step 4) | 30 | 5 | 0.2995 | 0.4458 | |
@@ -34,7 +34,7 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 
 | retain_loss_type | WMDP Bio Robust | MMLU | Notes |
 |------------------|-----------------|------|-------|
-| -                | ~0.44           | ~0.45 | Baseline |
+| -                | 0.4297          | 0.4510 | Baseline |
 | L2 (hidden states) | 0.2684 | 0.4437 | Best L2 |
 | KL (logits) | 0.2673 | 0.2295 | MMLU collapsed |
 
@@ -42,7 +42,7 @@ Sequential back-to-front unlearning: for each layer L (from last to first), use 
 
 | remove_coef | retain_coef | WMDP Bio Robust | MMLU | Notes |
 |-------------|-------------|-----------------|------|-------|
-| - | - | ~0.44 | ~0.45 | Baseline |
+| - | - | 0.4297 | 0.4510 | Baseline |
 | 50 | 5 | 0.2673 | 0.2295 | Collapsed |
 | 20 | 10 | 0.2673 | - | Collapsed |
 | 30 | 10 | 0.2673 | - | Collapsed |
@@ -76,7 +76,7 @@ Training with 10240 examples instead of 1024:
 
 | Model | WMDP Bio Robust | MMLU | Notes |
 |-------|-----------------|------|-------|
-| Baseline (target) | ~0.44 | ~0.45 | - |
+| Baseline (target) | 0.4297 | 0.4510 | - |
 | L2 (rm50/ret5) | 0.2535 | 0.2540 | MMLU collapsed (was 0.44 at 1x) |
 | KL (rm5/ret100) | 0.2673 | 0.2295 | No improvement |
 
@@ -88,7 +88,7 @@ Fine-tuning unlearned models on WMDP-Bio-Remove dataset to test recovery:
 
 | Model | Step 0 | Step 10 | Step 100 |
 |-------|--------|---------|----------|
-| Baseline (target) | ~0.44 | - | - |
+| Baseline (target) | 0.4297 | - | - |
 | L2 (rm50/ret5) | 0.2696 | 0.4055 | 0.4182 |
 | KL (rm5/ret100) | 0.2788 | 0.4078 | 0.4217 |
 

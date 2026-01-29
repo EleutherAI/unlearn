@@ -37,7 +37,7 @@ Finding the latest checkpoint with near-random WMDP Bio performance:
 
 | Job ID | retain_coef | remove_coef | Steps | retain_kl_loss | cb_loss | WMDP Bio | WMDP Robust | MMLU STEM (deprecated) | MMLU |
 |--------|-------------|-------------|-------|----------------|---------|----------|-------------|-----------|------|
-| Baseline | - | - | - | - | - | 42.97% | - | 36.85% | ~43% |
+| Baseline | - | - | - | - | - | 42.97% | 42.97% | 36.85% | 45.10% |
 | 2021158 | 2 | 5 | 256 | 0.0190 | 0.8912 | 0.3952 | - | 0.3619 | - |
 | 2021163 | 2 | 20 | 256 | 0.0481 | 0.8683 | 0.3721 | - | 0.3524 | - |
 | 2021160 | 5 | 10 | 256 | 0.0153 | 0.8692 | 0.3744 | - | 0.3552 | - |
@@ -101,7 +101,7 @@ Finding the latest checkpoint with near-random WMDP Bio performance:
 
 | Job ID | retain_coef | remove_coef | Steps | retain_kl_loss | cb_loss | WMDP Bio | WMDP Robust | MMLU |
 |--------|-------------|-------------|-------|----------------|---------|----------|-------------|------|
-| Baseline | - | - | - | - | - | 42.97% | - | ~43% |
+| Baseline | - | - | - | - | - | 42.97% | 42.97% | 45.10% |
 | 2042137 | 15 | 5 | 512 | 0.0027 | 0.7393 | - | 0.3894 | 0.4322 |
 | 2042650 | 10 | 5 | 512 | 0.0037 | 0.7392 | - | 0.3779 | 0.4312 |
 | 2042651 | 5 | 5 | 512 | 0.0062 | 0.7397 | - | 0.3779 | 0.4302 |
@@ -119,7 +119,7 @@ Finding the latest checkpoint with near-random WMDP Bio performance:
 
 | Job ID | retain_coef | remove_coef | Steps | retain_kl_loss | cb_loss | WMDP Bio | WMDP Robust | MMLU |
 |--------|-------------|-------------|-------|----------------|---------|----------|-------------|------|
-| Baseline | - | - | - | - | - | 42.97% | - | ~43% |
+| Baseline | - | - | - | - | - | 42.97% | 42.97% | 45.10% |
 | 2043897 | 1 | 12 | 512 | - | - | - | 0.3468 | 0.4143 |
 
 **Observation:** Higher remove_coef (12 vs 5) with low retain_coef (1) achieves stronger unlearning (WMDP 0.3468 vs 0.3721) but at cost of 2.3% MMLU drop.
