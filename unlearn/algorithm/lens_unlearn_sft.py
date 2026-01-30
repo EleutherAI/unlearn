@@ -131,7 +131,7 @@ class SFTUnlearningTrainer(UnlearningTrainer):
                 ),
             ]
         )
-        retain_coeff = self.retain_coef * scheduled_coeff
+        retain_coeff = self.retain_coef * (0.9 + 0.1 * scheduled_coeff)
         forget_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
 
         model.train()
@@ -308,6 +308,7 @@ class LensSftUnlearnConfig:
     skip_eval: bool = False
     epochs: int = 1
     use_ultrachat: bool = False
+    warmup_ratio: float = 0.0
 
 
 if __name__ == "__main__":
@@ -344,29 +345,14 @@ if __name__ == "__main__":
     lens = load_tuned_lenses(run_cfg.lens_path, model, device)
     print(f"Loaded lens with {len(lens)} layer translators (frozen)")
 
-    # Load frozen reference model for retain loss
-    frozen_ref_model = None
-    try:
-        from transformers import BitsAndBytesConfig
-
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-        )
-        print("Using 4-bit quantization for reference model to save memory.")
-    except ImportError:
-        bnb_config = None
-        print("bitsandbytes not found, loading in full bf16.")
-        print("Run pip install bitsandbytes")
-
+    # Load frozen reference model for retain loss (bf16 for exact KL)
     frozen_ref_model = AutoModelForCausalLM.from_pretrained(
         run_cfg.model_name,
         torch_dtype=torch.bfloat16,
-        quantization_config=bnb_config,
         device_map={"": local_rank},
     )
     frozen_ref_model.eval()
+    print("Loaded reference model in bf16.")
 
     global_batch_size = 32
     grad_acc_steps = max(1, global_batch_size // (run_cfg.pdbs * world_size))
@@ -379,6 +365,7 @@ if __name__ == "__main__":
     training_args = TrainingArguments(
         output_dir="./results",
         learning_rate=run_cfg.lr,
+        warmup_ratio=run_cfg.warmup_ratio,
         gradient_accumulation_steps=grad_acc_steps,
         per_device_train_batch_size=run_cfg.pdbs,
         per_device_eval_batch_size=run_cfg.pdbs,

@@ -20,6 +20,8 @@ fi
 NUM_TRAIN_EXAMPLES=${1:-1024}
 RETAIN_COEF=${2:-20.0}
 REMOVE_COEF=${3:-5.0}
+LR=${4:-1e-3}
+WARMUP_RATIO=${5:-0.0}
 
 echo "============================================"
 echo "Lens Unlearning SFT"
@@ -29,6 +31,7 @@ echo "Started: $(date)"
 echo "num_train_examples: $NUM_TRAIN_EXAMPLES"
 echo "retain_coef: $RETAIN_COEF"
 echo "remove_coef: $REMOVE_COEF"
+echo "lr: $LR"
 echo "============================================"
 
 source /home/a6a/lucia.a6a/miniforge3/etc/profile.d/conda.sh
@@ -68,7 +71,7 @@ fi
 
 NUM_GPUS=4
 
-SAVE_NAME="lens_ret${RETAIN_COEF}_rm${REMOVE_COEF}"
+SAVE_NAME="lens_ret${RETAIN_COEF}_rm${REMOVE_COEF}_lr${LR}"
 MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${SAVE_NAME}"
 
 # Training with FSDP
@@ -79,7 +82,8 @@ CMD="accelerate launch --config_file=$FSDP_CONFIG -m unlearn.algorithm.lens_unle
     --remove_coef=$REMOVE_COEF \
     --retain_coef=$RETAIN_COEF \
     --pdbs=1 \
-    --lr=1e-3 \
+    --lr=$LR \
+    --warmup_ratio=$WARMUP_RATIO \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_name=$SAVE_NAME"
 echo "Command: $CMD"

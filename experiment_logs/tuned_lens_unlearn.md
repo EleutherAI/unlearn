@@ -32,22 +32,44 @@ Unlearning via tuned lens activations - on forget data, representations at each 
 
 ### SFT + AdamW Optimizer
 
-| examples | steps | retain_coef | remove_coef | adam_lr | WMDP Robust | MMLU | Notes |
-|----------|-------|-------------|-------------|---------|-------------|-----------|-------|
-| -        | -     | -           | -           | -       | 42.97%      | 45.10% | Baseline |
-| 1024     | 32    | 0.0         | 5.0         | 1e-5    | 42.86%      | timeout   | Job 2042124: No unlearning (baseline=42.97%), MMLU eval timed out |
-| 1024     | 32    | 0.0         | 5.0         | 1e-5    | 42.17%      | 44.14%    | Job 2042919: SFT no retain (insufficient lr) |
-| 1024     | 32    | 5.0         | 5.0         | 1e-5    | 43.43%      | 45.09%    | Job 2045965: No unlearning (lr too low), MMLU preserved |
-| 1024     | 32    | 5.0         | 5.0         | 1e-4    | 43.55%      | 42.42%    | Job 2046753: Still no unlearning, MMLU slight degradation |
-| 1024     | 32    | 20.0        | 5.0         | 1e-3    | 24.08%      | 26.90%    | Job 2047279: Strong unlearning but MMLU damaged |
-| 1024     | 32    | 10.0        | 1.0         | 1e-3    | 26.73%      | 22.95%    | Job 2062489 |
-| 1024     | 32    | 15.0        | 1.0         | 1e-3    | 25.69%      | 25.51%    | Job 2062376 |
-| 1024     | 32    | 20.0        | 1.0         | 1e-3    | 26.04%      | 25.57%    | Job 2062377 |
-| 1024     | 32    | 30.0        | 1.0         | 1e-3    | 27.19%      | 22.95%    | Job 2062378 |
-| 1024     | 32    | 80.0        | 1.0         | 1e-3    | 24.88%      | 23.59%    | Job 2075380 |
-| 1024     | 32    | 100.0       | 1.0         | 1e-3    | 23.50%      | 24.65%    | Job 2075390 |
-| 1024     | 32    | 200.0       | 1.0         | 1e-3    | 24.08%      | 26.89%    | Job 2075391 |
-| 1024     | 32    | 500.0       | 1.0         | 1e-3    | 26.50%      | 22.95%    | Job 2075383 |
+| examples | steps | retain_coef | remove_coef | adam_lr | retain_loss | forget_loss | WMDP Robust | MMLU | Notes |
+|----------|-------|-------------|-------------|---------|-------------|-------------|-------------|------|-------|
+| -        | -     | -           | -           | -       | -           | -           | 42.97%      | 45.10% | Baseline |
+| 1024     | 32    | 0.0         | 5.0         | 1e-5    | 0.00        | 1.80        | 42.86%      | timeout   | Job 2042124 |
+| 1024     | 32    | 0.0         | 5.0         | 1e-5    | 0.00        | 1.80        | 42.17%      | 44.14%    | Job 2042919 |
+| 1024     | 32    | 5.0         | 5.0         | 1e-5    | 30.31       | 2.18        | 43.43%      | 45.09%    | Job 2045965 |
+| 1024     | 32    | 5.0         | 5.0         | 1e-4    | 167.60      | 2.05        | 43.55%      | 42.42%    | Job 2046753 |
+| 1024     | 32    | 20.0        | 5.0         | 1e-3    | 11571.27    | 1.48        | 24.08%      | 26.90%    | Job 2047279 |
+| 1024     | 32    | 10.0        | 1.0         | 1e-3    | 11340.50    | 1.31        | 26.73%      | 22.95%    | Job 2062489 |
+| 1024     | 32    | 15.0        | 1.0         | 1e-3    | 11373.78    | 1.45        | 25.69%      | 25.51%    | Job 2062376 |
+| 1024     | 32    | 20.0        | 1.0         | 1e-3    | 11311.43    | 1.48        | 26.04%      | 25.57%    | Job 2062377 |
+| 1024     | 32    | 30.0        | 1.0         | 1e-3    | 10913.43    | 1.48        | 27.19%      | 22.95%    | Job 2062378 |
+| 1024     | 32    | 80.0        | 1.0         | 1e-3    | 11646.10    | 1.60        | 24.88%      | 23.59%    | Job 2075380 |
+| 1024     | 32    | 100.0       | 1.0         | 1e-3    | 11763.40    | 1.85        | 23.50%      | 24.65%    | Job 2075390 |
+| 1024     | 32    | 200.0       | 1.0         | 1e-3    | 12793.33    | 2.15        | 24.08%      | 26.89%    | Job 2075391 |
+| 1024     | 32    | 500.0       | 1.0         | 1e-3    | 11277.07    | 1.42        | 26.50%      | 22.95%    | Job 2075383 |
+| 1024     | 32    | 500.0       | 1.0         | 5e-4    | 10074.43    | 2.62        | 23.50%      | cancelled | Job 2075512 |
+| 1024     | 32    | 500.0       | 1.0         | 3e-4    | 775.73      | 2.39        | cancelled   | cancelled | Job 2075513 |
+| 1024     | 32    | 500.0       | 1.0         | 2e-4    | 362.76      | 2.40        | cancelled   | cancelled | Job 2075514 |
+| 1024     | 32    | 500.0       | 23.0        | 1e-5    | cancelled   | cancelled   | cancelled   | cancelled | Job 2075515 |
+| 1024     | 32    | 500.0       | 10.0        | 1e-5    | cancelled   | cancelled   | cancelled   | cancelled | Job 2075516 |
+| 1024     | 32    | 500.0       | 1.0         | 1e-5    | cancelled   | cancelled   | cancelled   | cancelled | Job 2075518 |
+
+**Note:** All runs above used a 4-bit quantized reference model for the KL retain loss, inflating retain_loss by ~48 (quantization noise floor). Runs below use a bf16 reference model (matching training precision), giving accurate retain_loss values. The retain_coeff schedule was also changed to start at 0.25x (ramping to 1.0x) instead of 0x, and lr warmup was added.
+
+| examples | steps | retain_coef | remove_coef | adam_lr | warmup | retain_loss | forget_loss | WMDP Robust | MMLU | Notes |
+|----------|-------|-------------|-------------|---------|--------|-------------|-------------|-------------|------|-------|
+| -        | -     | -           | -           | -       | -      | -           | -           | 42.97%      | 45.10% | Baseline |
+| 1024     | 32    | 500.0       | 1.0         | 1e-5    | 0.5    | 1.32        | 2.11        | 43.20%      | 45.14%    | Job 2075536: No unlearning, MMLU preserved |
+| 1024     | 32    | 15.0        | 15.0        | 5e-4    | 0.5    | 892.15      | 1.91        | 26.38%      | 24.78%    | Job 2075550 |
+| 1024     | 32    | 15.0        | 1.0         | 5e-4    | 0.5    | 586.26      | 2.24        | 27.76%      | 27.55%    | Job 2075554 |
+| 1024     | 32    | 50.0        | 1.0         | 5e-4    | 0.5    | 552.87      | 2.33        | eval error  | 30.37%    | Job 2075558 |
+| 1024     | 32    | 100.0       | 1.0         | 5e-4    | 0.5    | 585.73      | 1.56        | eval error  | 33.04%    | Job 2075559 |
+| 1024     | 32    | 200.0       | 1.0         | 5e-4    | 0.5    | 557.40      | 2.28        | 32.60%      | 34.47%    | Job 2075571 |
+| 1024     | 32    | 400.0       | 1.0         | 5e-4    | 0.5    | 6714.06     | 1.92        | 24.54%      | 24.41%    | Job 2075572: Unstable, model collapsed |
+| 1024     | 32    | 400.0       | 5.0         | 1e-5    | 0.5    | pending     | pending     | pending     | pending   | Job 2075576 |
+| 1024     | 32    | 400.0       | 10.0        | 1e-5    | 0.5    | pending     | pending     | pending     | pending   | Job 2075577 |
+| 1024     | 32    | 400.0       | 20.0        | 1e-5    | 0.5    | pending     | pending     | pending     | pending   | Job 2075578 |
 
 ## Tamper Resistance (Finetune Attack)
 

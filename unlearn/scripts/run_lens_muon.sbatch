@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=lens-muon
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --exclusive
 #SBATCH --gpus-per-node=4
 #SBATCH --ntasks-per-node=1
@@ -74,8 +74,12 @@ else
 fi
 
 NUM_GPUS=4
+MASTER_ADDR=$(scontrol show hostname $SLURM_NODELIST | head -n1)
 echo "===== Training with $OPTIMIZER ====="
-CMD="torchrun --nproc_per_node=$NUM_GPUS -m unlearn.algorithm.lens_unlearn_muon \
+echo "MASTER_ADDR=$MASTER_ADDR, NNODES=$SLURM_NNODES"
+CMD="torchrun --nnodes=$SLURM_NNODES --nproc_per_node=$NUM_GPUS \
+    --rdzv_id=$SLURM_JOB_ID --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:29500 \
+    -m unlearn.algorithm.lens_unlearn_muon \
     --lens_path=$LENS_DIR \
     --num_train_examples=$NUM_TRAIN_EXAMPLES \
     --remove_coef=$REMOVE_COEF \
@@ -91,7 +95,7 @@ CMD="torchrun --nproc_per_node=$NUM_GPUS -m unlearn.algorithm.lens_unlearn_muon 
 echo "Command: $CMD"
 echo ""
 
-$CMD
+srun $CMD
 
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
