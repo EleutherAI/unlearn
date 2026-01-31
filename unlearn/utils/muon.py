@@ -8,12 +8,9 @@ class MuonAdamW(torch.optim.Optimizer):
     and torch.optim.AdamW to everything else (embeddings, biases, norms).
     """
 
-    # Names that should always use AdamW (norms, embeddings, biases)
-    ADAM_KEYWORDS = {"layernorm", "layer_norm", "embed", "norm", "bias", "head"}
-
     def __init__(
         self,
-        named_params,
+        params,
         muon_lr=0.02,
         adam_lr=3e-4,
         muon_momentum=0.95,
@@ -24,19 +21,16 @@ class MuonAdamW(torch.optim.Optimizer):
         muon_params = []
         adam_params = []
 
-        for name, p in named_params:
+        for p in params:
             if not p.requires_grad:
                 continue
 
-            name_lower = name.lower()
-            if "weight" in name_lower and not any(
-                kw in name_lower for kw in self.ADAM_KEYWORDS
-            ):
+            if p.ndim >= 2 and p.size(0) < 10000:
                 muon_params.append(p)
             else:
                 adam_params.append(p)
 
-        # 2. Initialize internal optimizers
+        self.optimizers = []
         self.optimizers = []
 
         if muon_params:

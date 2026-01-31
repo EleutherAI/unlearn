@@ -17,6 +17,7 @@ from transformers import (
 from transformers.trainer_utils import seed_worker
 
 from unlearn.algorithm.sequential_unlearn import forward_from_layer
+from unlearn.utils.math import max_entropy_kl_loss
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer
 
@@ -145,25 +146,33 @@ class SequentialSftTrainer(Trainer):
                 target_layer,
             )
 
-            vocab_size = logits.shape[-1]
-            batch_size, seq_len = logits.shape[:2]
-
-            random_targets = torch.randint(
-                0, vocab_size, (batch_size, seq_len), device=logits.device
-            )
-
             mask = forget_attention_mask.bool().to(logits.device)
-            logits_flat = logits[mask]
-            targets_flat = random_targets[mask]
+            logits_masked = logits[mask]
 
-            if logits_flat.numel() > 0:
-                ce_loss = F.cross_entropy(
-                    logits_flat.float(), targets_flat, reduction="mean"
-                )
-                log_vocab = torch.log(
-                    torch.tensor(float(vocab_size), device=target_device)
-                )
-                forget_loss = (ce_loss / log_vocab).to(target_device) + dummy_loss
+            if logits_masked.numel() > 0:
+                if self.run_args.use_max_entropy_kl:
+                    vocab_size = logits.shape[-1]
+                    log_vocab = torch.log(
+                        torch.tensor(float(vocab_size), device=target_device)
+                    )
+                    forget_loss = (
+                        max_entropy_kl_loss(logits_masked).to(target_device) / log_vocab
+                        + dummy_loss
+                    )
+                else:
+                    vocab_size = logits.shape[-1]
+                    batch_size, seq_len = logits.shape[:2]
+                    random_targets = torch.randint(
+                        0, vocab_size, (batch_size, seq_len), device=logits.device
+                    )
+                    targets_flat = random_targets[mask]
+                    ce_loss = F.cross_entropy(
+                        logits_masked.float(), targets_flat, reduction="mean"
+                    )
+                    log_vocab = torch.log(
+                        torch.tensor(float(vocab_size), device=target_device)
+                    )
+                    forget_loss = (ce_loss / log_vocab).to(target_device) + dummy_loss
             else:
                 forget_loss = dummy_loss
         else:
@@ -208,6 +217,7 @@ class SequentialSftUnlearnConfig:
     epochs_per_layer: int = 1
     warmup_ratio: float = 0.0
     use_ultrachat: bool = False
+    use_max_entropy_kl: bool = False
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from accelerate.hooks import remove_hook_from_module
 from simple_parsing import ArgumentParser
@@ -309,6 +310,7 @@ class LensSftUnlearnConfig:
     epochs: int = 1
     use_ultrachat: bool = False
     warmup_ratio: float = 0.0
+    kl_retain_loss: bool = True
 
 
 if __name__ == "__main__":
@@ -345,14 +347,17 @@ if __name__ == "__main__":
     lens = load_tuned_lenses(run_cfg.lens_path, model, device)
     print(f"Loaded lens with {len(lens)} layer translators (frozen)")
 
-    # Load frozen reference model for retain loss (bf16 for exact KL)
-    frozen_ref_model = AutoModelForCausalLM.from_pretrained(
-        run_cfg.model_name,
-        torch_dtype=torch.bfloat16,
-        device_map={"": local_rank},
-    )
-    frozen_ref_model.eval()
-    print("Loaded reference model in bf16.")
+    frozen_ref_model = None
+    if run_cfg.kl_retain_loss:
+        frozen_ref_model = AutoModelForCausalLM.from_pretrained(
+            run_cfg.model_name,
+            torch_dtype=torch.bfloat16,
+            device_map={"": local_rank},
+        )
+        frozen_ref_model.eval()
+        print("Loaded reference model in bf16.")
+    else:
+        print("KL retain loss disabled, skipping reference model.")
 
     global_batch_size = 32
     grad_acc_steps = max(1, global_batch_size // (run_cfg.pdbs * world_size))
@@ -400,5 +405,8 @@ if __name__ == "__main__":
 
         trainer.save_model(save_path)
         tokenizer.save_pretrained(save_path)
+
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
     print("Done :)")

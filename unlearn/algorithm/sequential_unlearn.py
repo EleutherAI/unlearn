@@ -23,6 +23,7 @@ from transformers import PreTrainedModel, Trainer, TrainingArguments
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import seed_worker
 
+from unlearn.utils.math import max_entropy_kl_loss
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer
 
@@ -260,24 +261,25 @@ class SequentialUnlearningTrainer(Trainer):
                 self.target_layer,
             )
 
-            # Maximize entropy = minimize cross-entropy with random targets
             vocab_size = logits.shape[-1]
-            batch_size, seq_len = logits.shape[:2]
-
-            random_targets = torch.randint(
-                0, vocab_size, (batch_size, seq_len), device=device
-            )
+            log_vocab = torch.log(torch.tensor(float(vocab_size), device=device))
 
             mask = forget_attention_mask.bool()
-            logits_flat = logits[mask]
-            targets_flat = random_targets[mask]
+            logits_masked = logits[mask]
 
-            if logits_flat.numel() > 0:
-                ce_loss = F.cross_entropy(
-                    logits_flat.float(), targets_flat, reduction="mean"
-                )
-                log_vocab = torch.log(torch.tensor(float(vocab_size), device=device))
-                forget_loss = ce_loss / log_vocab
+            if logits_masked.numel() > 0:
+                if self.run_args.use_max_entropy_kl:
+                    forget_loss = max_entropy_kl_loss(logits_masked) / log_vocab
+                else:
+                    batch_size, seq_len = logits.shape[:2]
+                    random_targets = torch.randint(
+                        0, vocab_size, (batch_size, seq_len), device=device
+                    )
+                    targets_flat = random_targets[mask]
+                    ce_loss = F.cross_entropy(
+                        logits_masked.float(), targets_flat, reduction="mean"
+                    )
+                    forget_loss = ce_loss / log_vocab
             else:
                 forget_loss = torch.tensor(0.0, device=device)
         else:
@@ -321,6 +323,7 @@ class SequentialUnlearnConfig:
     save_name: str = ""
     revision: str = "main"
     epochs_per_layer: int = 1
+    use_max_entropy_kl: bool = False
 
 
 def main():

@@ -11,6 +11,10 @@ import torch
 import torch.nn.functional as F
 from accelerate.hooks import remove_hook_from_module
 from simple_parsing import ArgumentParser
+from torch.distributed.checkpoint.state_dict import (
+    StateDictOptions,
+    get_model_state_dict,
+)
 from torch.utils.data import DataLoader
 from transformers import (
     AutoModelForCausalLM,
@@ -61,7 +65,7 @@ class UnlearningTrainer(Trainer):
     def create_optimizer(self):
         if self.use_muon:
             self.optimizer = MuonAdamW(
-                self.model.named_parameters(),
+                self.model.parameters(),
                 muon_lr=self.run_args.muon_lr,
                 adam_lr=self.run_args.adam_lr,
                 muon_momentum=self.run_args.muon_momentum,
@@ -420,6 +424,7 @@ if __name__ == "__main__":
             "fsdp_version": 2,
             "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
             "activation_checkpointing": True,
+            "state_dict_type": "FULL_STATE_DICT",
         },
     )
 
@@ -448,8 +453,14 @@ if __name__ == "__main__":
         if "models/" in run_cfg.model_name:
             run_cfg.model_name = run_cfg.model_name.replace("models/", "")
         save_path = f"./models/{run_cfg.model_name}_{run_cfg.save_name}"
-        trainer.save_model(save_path)
+
+        state_dict = get_model_state_dict(
+            trainer.model,
+            options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+        )
         if global_rank == 0:
+            unwrapped = trainer.accelerator.unwrap_model(trainer.model)
+            unwrapped.save_pretrained(save_path, state_dict=state_dict)
             tokenizer.save_pretrained(save_path)
             print(f"Model saved to: {save_path}")
 

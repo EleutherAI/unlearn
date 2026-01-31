@@ -35,3 +35,29 @@ def effective_rank(A: Tensor) -> float:
 
     # Effective rank is exp(entropy)
     return entropy.exp().item()
+
+
+def max_entropy_kl_loss(logits):
+    """
+    Calculates KL(Uniform || Model) efficiently directly from logits.
+    Minimizing this maximizes the entropy of the model's output.
+
+    Args:
+        lens_logits: Tensor of shape [batch, seq_len, vocab_size]
+
+    Returns:
+        Scalar loss
+    """
+    # 1. Calculate log(sum(e^x) (The normalizing constant of softmax)
+    # Shape: [batch, seq_len]
+    log_sum_exp = torch.logsumexp(logits, dim=-1)
+
+    # 2. Calculate Mean of logits - (1/V) * sum(x)
+    # Shape: [batch, seq_len]
+    logit_mean = torch.mean(logits, dim=-1)
+
+    # 3. The KL divergence (up to a constant) is simply the difference
+    # L = log(sum(e^x)) - mean(x)
+    loss = log_sum_exp - logit_mean
+
+    return loss.mean()
