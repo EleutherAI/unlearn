@@ -297,7 +297,7 @@ class LensSftUnlearnConfig:
     corrupt_ds: Literal["rewritten", "shuffled"] = "rewritten"
     wmdp_eval_limit: int | None = None
     mmlu_agieval_limit: int | None = None
-    lr: float = 1e-3
+    lr: float = 1e-5
     pdbs: int = 4
     retain_coef: float = 5.0
     remove_coef: float = 5.0

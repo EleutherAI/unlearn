@@ -204,7 +204,7 @@ class SequentialSftUnlearnConfig:
     unlearn_corrupt: bool = False
     corrupt_ratio: float = 0.5
     corrupt_ds: Literal["rewritten", "shuffled"] = "rewritten"
-    lr: float = 1e-3
+    lr: float = 1e-5
     pdbs: int = 1
     retain_coef: float = 20.0
     remove_coef: float = 5.0
