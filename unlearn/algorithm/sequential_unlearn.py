@@ -25,7 +25,7 @@ from transformers.trainer_utils import seed_worker
 
 from unlearn.utils.math import max_entropy_kl_loss
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer
+from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
 
 def get_model_components(model):
@@ -432,14 +432,9 @@ def main():
     model = model.merge_and_unload()
 
     if run_cfg.save_name:
-        save_path = (
-            f"./models/{run_cfg.model_name.replace('/', '_')}_{run_cfg.save_name}"
-        )
-        print(f"Saving model to: {save_path}")
-        model.save_pretrained(save_path)
-        tokenizer.save_pretrained(save_path)
+        save_checkpoint(trainer, run_cfg, tokenizer)
 
-    print("\nDone!")
+    print("\nTraining complete")
 
 
 if __name__ == "__main__":

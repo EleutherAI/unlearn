@@ -19,7 +19,7 @@ from transformers.trainer_utils import seed_worker
 from unlearn.algorithm.sequential_unlearn import forward_from_layer
 from unlearn.utils.math import max_entropy_kl_loss
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer
+from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
 
 class SequentialSftTrainer(Trainer):
@@ -310,18 +310,6 @@ if __name__ == "__main__":
     trainer.train()
 
     if run_cfg.save_name:
-        if "models/" in run_cfg.model_name:
-            run_cfg.model_name = run_cfg.model_name.replace("models/", "")
-        save_path = f"./models/{run_cfg.model_name}_{run_cfg.save_name}"
+        save_checkpoint(trainer, run_cfg, tokenizer)
 
-        trainer.accelerator.wait_for_everyone()
-        state_dict = trainer.accelerator.get_state_dict(trainer.model, unwrap=False)
-        if trainer.accelerator.is_main_process:
-            unwrapped = trainer.accelerator.unwrap_model(trainer.model)
-            unwrapped.save_pretrained(
-                save_path, state_dict=state_dict, safe_serialization=True
-            )
-            tokenizer.save_pretrained(save_path)
-        trainer.accelerator.wait_for_everyone()
-
-    print("Done!")
+    print("Training complete")

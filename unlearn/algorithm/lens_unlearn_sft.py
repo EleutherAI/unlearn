@@ -21,7 +21,7 @@ from tuned_lens import TunedLens
 
 from unlearn.utils.hook import ActivationCapture
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer
+from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
 
 class UnlearningTrainer(Trainer):
@@ -399,12 +399,7 @@ if __name__ == "__main__":
     trainer.train()
 
     if run_cfg.save_name:
-        if "models/" in run_cfg.model_name:
-            run_cfg.model_name = run_cfg.model_name.replace("models/", "")
-        save_path = f"./models/{run_cfg.model_name}_{run_cfg.save_name}"
-
-        trainer.save_model(save_path)
-        tokenizer.save_pretrained(save_path)
+        save_checkpoint(trainer, run_cfg, tokenizer)
 
     if dist.is_initialized():
         dist.destroy_process_group()

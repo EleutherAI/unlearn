@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import torch
 from bergson.config import IndexConfig
@@ -10,7 +11,44 @@ from datasets import (
 )
 from peft import PeftConfig, PeftModel, get_peft_model_state_dict
 from torch.distributed.fsdp import FullyShardedDataParallel as fully_shard
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    Trainer,
+)
+
+
+def save_checkpoint(trainer: Trainer, run_cfg, tokenizer):
+    model_name_clean = Path(run_cfg.model_name).name
+
+    save_path = Path("models") / f"{model_name_clean}_{run_cfg.save_name}"
+
+    # Ensure all GPUs finish training
+    trainer.accelerator.wait_for_everyone()
+
+    # accelerator.get_state_dict(model) handles:
+    #   - FSDP: Gathers sharded weights from all GPUs to CPU
+    #   - DeepSpeed: Gathers ZeRO stages
+    #   - DDP: Takes from rank 0
+    #   - LoRA: Gathers only adapter weights (if using PEFT) or full weights
+    state_dict = trainer.accelerator.get_state_dict(trainer.model)
+
+    if trainer.accelerator.is_main_process:
+        # Unwrap to get the base HuggingFace model (removes DDP/FSDP wrappers)
+        # This is necessary to access .save_pretrained()
+        unwrapped_model = trainer.accelerator.unwrap_model(trainer.model)
+
+        # Save using the gathered state_dict
+        unwrapped_model.save_pretrained(
+            save_path,
+            is_main_process=True,
+            state_dict=state_dict,
+            safe_serialization=True,
+        )
+        tokenizer.save_pretrained(save_path)
+
+    trainer.accelerator.wait_for_everyone()
 
 
 def unwrap_model(model):

@@ -170,7 +170,7 @@ def main():
         str(results_file), args.orth_coef, args.remove_coef, wmdp_acc, mmlu_acc
     )
 
-    print(f"\n[{datetime.now()}] Done!")
+    print(f"\n[{datetime.now()}] Training complete")
     print(
         f"Results: orth_coef={args.orth_coef}, remove_coef={args.remove_coef},"
         f" WMDP={wmdp_acc:.4f}, MMLU={mmlu_acc:.4f}"

@@ -245,7 +245,7 @@ def main():
         )
 
     print(f"\nAll probes saved to {args.save_dir}")
-    print("Done!")
+    print("Training complete")
 
 
 if __name__ == "__main__":

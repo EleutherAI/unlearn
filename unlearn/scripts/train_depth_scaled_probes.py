@@ -408,7 +408,7 @@ def main():
 
     wandb.finish()
     print(f"\nAll probes saved to {save_dir}")
-    print("Done!")
+    print("Training complete")
 
 
 if __name__ == "__main__":

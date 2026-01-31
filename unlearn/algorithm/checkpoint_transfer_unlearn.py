@@ -25,7 +25,7 @@ from unlearn.algorithm.online_affine_fitter import (
     upload_affine_transforms_to_hub,
 )
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer
+from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
 
 class UnlearningTrainer(Trainer):
@@ -678,13 +678,6 @@ if __name__ == "__main__":
         model = model.merge_and_unload()
 
     if run_cfg.save_name:
-        if "models/" in run_cfg.model_name:
-            run_cfg.model_name = run_cfg.model_name.replace("models/", "")
-        model.save_pretrained(
-            f"./models/{run_cfg.model_name + '_' + run_cfg.save_name}"
-        )
-        tokenizer.save_pretrained(
-            f"./models/{run_cfg.model_name + '_' + run_cfg.save_name}"
-        )
+        save_checkpoint(trainer, run_cfg, tokenizer)
 
     print("Done :)")

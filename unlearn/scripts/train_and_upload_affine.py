@@ -246,7 +246,7 @@ def main():
             private=args.private,
         )
 
-    print("\nDone!")
+    print("\nTraining complete")
 
 
 if __name__ == "__main__":

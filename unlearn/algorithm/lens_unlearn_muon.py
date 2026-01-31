@@ -11,10 +11,6 @@ import torch
 import torch.nn.functional as F
 from accelerate.hooks import remove_hook_from_module
 from simple_parsing import ArgumentParser
-from torch.distributed.checkpoint.state_dict import (
-    StateDictOptions,
-    get_model_state_dict,
-)
 from torch.utils.data import DataLoader
 from transformers import (
     AutoModelForCausalLM,
@@ -28,7 +24,7 @@ from tuned_lens import TunedLens
 from unlearn.utils.hook import ActivationCapture
 from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer
+from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
 
 class UnlearningTrainer(Trainer):
@@ -450,19 +446,7 @@ if __name__ == "__main__":
     global_rank = int(os.environ.get("RANK", 0))
 
     if run_cfg.save_name:
-        if "models/" in run_cfg.model_name:
-            run_cfg.model_name = run_cfg.model_name.replace("models/", "")
-        save_path = f"./models/{run_cfg.model_name}_{run_cfg.save_name}"
-
-        state_dict = get_model_state_dict(
-            trainer.model,
-            options=StateDictOptions(full_state_dict=True, cpu_offload=True),
-        )
-        if global_rank == 0:
-            unwrapped = trainer.accelerator.unwrap_model(trainer.model)
-            unwrapped.save_pretrained(save_path, state_dict=state_dict)
-            tokenizer.save_pretrained(save_path)
-            print(f"Model saved to: {save_path}")
+        save_checkpoint(trainer, run_cfg, tokenizer)
 
     if global_rank == 0:
         print("Done :)")
