@@ -36,6 +36,8 @@ Retain L2 computed at fixed layers [5,10,15,20,25,30], not at the current target
 | 6 | 28→16 (step 4) | 50 | 5 | 1280 | 0.2535 | 0.2540 | 10x examples, MMLU collapsed |
 | 7 | 28→16 (step 4) | 50 | 5 | 128 | 0.2535 | 0.2540 | Hook migration v1 (4-layer retain), Job 2088651 |
 | 8 | 28→16 (step 4) | 50 | 5 | 128 | 0.3076 | 0.4488 | Hook migration v2 (all-layer retain), Job 2088695 |
+| 9 | 28→16 (step 4) | 50 | 5 | 128 | | | +ultrachat |
+| 10 | 28→16 (step 4) | 50 | 5 | 128 | 0.2823 | 0.4303 | Replication of run 5, Job 2110179 |
 
 ### KL Retain Loss (LoRA) - Worse Than L2 Norm Activation Retain
 
@@ -72,7 +74,12 @@ Retain L2 computed at the current target layer's output. Only the target layer's
 | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 1 | 31→11 (step 4) | 5 | 5 | 2e-4 | 768 | 1.28 | 1.93 | 0.3929 | 0.4462 | Job 2110034 |
 | 2 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | 1.70 | 1.61 | **0.2834** | **0.4239** | Job 2110068 |
-| 3 | 31→1 (step 2) | 14 | 2 | 2e-4 | 2048 | | | | | Whole model |
+| 3 | 31→1 (step 2) | 14 | 2 | 2e-4 | 2048 | | | | | Job 2110099, OOM at step ~1024 |
+| 4 | 31→1 (step 2) | 10 | 2 | 2e-4 | 2048 | | | | | Job 2110618 |
+| 5 | 31→1 (step 2) | 5 | 2 | 2e-4 | 2048 | | | | | Job 2110619 |
+| 6 | 31→1 (step 2) | 2 | 2 | 2e-4 | 2048 | | | | | Job 2110620 |
+| 7 | 31→1 (step 2) | 1 | 2 | 2e-4 | 2048 | | | | | Job 2110621 |
+| 8 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | | | | | +ultrachat |
 
 ### Max Entropy KL Forget Loss, KL Retain Loss (Naive SFT, breaks differential unlearning)
 
@@ -110,6 +117,11 @@ All ablations use max entropy KL forget loss, KL retain loss (on final logits, g
 | Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
 | 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 1.70 | 1.87 | **0.3986** | **0.4519** | nll_retain |
+| 39 | 31→1 (step 2) | 5 | 200 | 2e-4 | 2048 | 0.97 | 1.97 | **0.3825** | **0.4387** | nll_retain, full model, Job 2110137 |
+| 41 | 31→1 (step 2) | 10 | 200 | 2e-4 | 2048 | | | | | nll_retain, full model |
+| 42 | 31→1 (step 2) | 10 | 500 | 2e-4 | 2048 | | | | | nll_retain, full model |
+| 43 | 31→1 (step 2) | 5 | 500 | 2e-4 | 2048 | | | | | nll_retain, full model |
+| 44 | 31→1 (step 2) | 2 | 200 | 2e-4 | 2048 | | | | | nll_retain, full model |
 
 ### Same-Sign Grads (Some Unlearning, Partial MMLU Degradation)
 
@@ -165,7 +177,7 @@ Same as above with UltraChat mixed into retain data.
 | Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 21 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | | | | | |
+| 21 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | 32.0 | 1.74 | 0.4147 | 0.4418 | Job 2110097 |
 
 ### Ramp Retain from Zero + L2-SP + UltraChat (No Same-Sign/Asymmetric)
 
@@ -174,7 +186,7 @@ L2-SP + ramp retain from zero + UltraChat, without gradient filtering.
 | Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 22 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | | | | | |
+| 22 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | 32.0 | 1.48 | 0.3998 | 0.4326 | Job 2110098 |
 
 ### L2-SP Only (No Same-Sign, Asymmetric, or Ramp)
 
@@ -186,7 +198,8 @@ L2-SP regularization without gradient filtering. l2sp_coef=0.01.
 | 28 | 31→11 (step 4) | 40 | 200 | 2e-4 | 0.01 | 768 | 10.64 | 1.92 | 0.4297 | 0.4497 | No effect |
 | 32 | 31→11 (step 4) | 40 | 5 | 1e-4 | 0.01 | 768 | 3.77 | 1.88 | 0.4320 | 0.4506 | No effect |
 | 37 | 31→11 (step 4) | 20 | 5 | 1e-3 | 0.01 | 768 | 81.46 | 1.94 | 0.4055 | 0.4194 | |
-| 38 | 31→11 (step 4) | 2 | 30 | 1e-3 | 0.01 | 768 | | | | | |
+| 38 | 31→11 (step 4) | 2 | 30 | 1e-3 | 0.01 | 768 | 930.06 | 1.95 | 0.4274 | 0.4588 | No effect |
+| 40 | 31→11 (step 4) | 2 | 30 | 1e-3 | 0.01 | 768 | 930.06 | 1.95 | 0.4274 | 0.4588 | +ultrachat, no effect. Job 2110091 |
 
 ## Default Hyperparameters
 
