@@ -24,6 +24,7 @@ from unlearn.algorithm.online_affine_fitter import (
     train_affine_transform,
     upload_affine_transforms_to_hub,
 )
+from unlearn.utils.hook import ActivationCapture, resolve_layer_names
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
@@ -64,6 +65,15 @@ class UnlearningTrainer(Trainer):
                 param.requires_grad = False
 
         self.affine_transforms = affine_transforms or {}
+
+        self.layer_id_to_name = resolve_layer_names(model, lora_target_layers)
+        self.target_module_names = list(self.layer_id_to_name.values())
+
+        if self.checkpoint_model is not None:
+            self.checkpoint_layer_names = resolve_layer_names(
+                checkpoint_model, lora_target_layers
+            )
+            self.checkpoint_target_modules = list(self.checkpoint_layer_names.values())
 
         self.metrics_log_file = os.path.join(
             self.args.output_dir or ".", "training_metrics.csv"
@@ -162,16 +172,13 @@ class RRTrainer(UnlearningTrainer):
         )
 
         # ==== Forward Inputs ====
-        module = "hidden_states"
         retain_inputs_dict = dict(
             input_ids=retain_input_ids,
             attention_mask=retain_attention_mask,
-            output_hidden_states=True,
         )
         cb_inputs_dict = dict(
             input_ids=circuit_breaker_input_ids,
             attention_mask=circuit_breaker_attention_mask,
-            output_hidden_states=True,
         )
 
         # ===== Step Coeff ====
@@ -222,13 +229,26 @@ class RRTrainer(UnlearningTrainer):
                 del shift_logits, shift_labels, ce_per_token, masked_ce
             else:
                 # Need original model outputs for KL or MSE
+                needs_mse = not self.run_args.retain_kl_loss
+                if needs_mse:
+                    retain_capturer = ActivationCapture(
+                        unwrapped_model, self.target_module_names
+                    )
+                    retain_capturer.register()
+
                 with unwrapped_model.disable_adapter():
                     unwrapped_model.eval()
                     with torch.no_grad():
                         orig_retain_outputs = unwrapped_model(**retain_inputs_dict)
                         orig_retain_logits = orig_retain_outputs.logits
-                        if not self.run_args.retain_kl_loss:
-                            orig_retain_hidden = orig_retain_outputs[module]
+                        if needs_mse:
+                            orig_retain_acts = {}
+                            for l in self.lora_target_layers:
+                                name = self.layer_id_to_name[l]
+                                orig_retain_acts[l] = retain_capturer.activations[
+                                    name
+                                ].detach()
+                            retain_capturer.clear()
 
                 unwrapped_model.train()
                 lora_retain_outputs = unwrapped_model(**retain_inputs_dict)
@@ -255,7 +275,6 @@ class RRTrainer(UnlearningTrainer):
                     orig_log_probs = F.log_softmax(orig_retain_logits.float(), dim=-1)
                     lora_log_probs = F.log_softmax(lora_retain_logits.float(), dim=-1)
 
-                    # KL divergence per token
                     kl_per_token = F.kl_div(
                         lora_log_probs,
                         orig_log_probs,
@@ -263,7 +282,6 @@ class RRTrainer(UnlearningTrainer):
                         log_target=True,
                     ).sum(dim=-1)
 
-                    # Mask and average
                     masked_kl = kl_per_token * retain_attention_mask.float()
                     valid_tokens = retain_attention_mask.sum().float()
                     if valid_tokens > 0:
@@ -271,15 +289,15 @@ class RRTrainer(UnlearningTrainer):
 
                     del orig_log_probs, lora_log_probs, kl_per_token, masked_kl
                 else:
-                    # Retain loss: MSE on hidden states
-                    lora_retain_hidden = lora_retain_outputs[module]
+                    # Retain loss: MSE on hidden states via ActivationCapture
                     mask_expanded = retain_attention_mask.unsqueeze(-1).float()
                     valid_tokens = mask_expanded.sum()
 
                     mse_accumulator = 0
-                    for layer_idx in self.lora_target_layers:
-                        target_act = orig_retain_hidden[layer_idx].detach()
-                        pred_act = lora_retain_hidden[layer_idx]
+                    for l in self.lora_target_layers:
+                        name = self.layer_id_to_name[l]
+                        target_act = orig_retain_acts[l]
+                        pred_act = retain_capturer.activations[name]
 
                         target_masked = (target_act * mask_expanded).float()
                         pred_masked = (pred_act * mask_expanded).float()
@@ -297,7 +315,7 @@ class RRTrainer(UnlearningTrainer):
                         del target_act, pred_act, layer_mse, mse_per_token
 
                     retain_loss = mse_accumulator / len(self.lora_target_layers)
-                    del orig_retain_hidden, lora_retain_hidden
+                    retain_capturer.remove()
 
             gc.collect()
 
@@ -308,14 +326,22 @@ class RRTrainer(UnlearningTrainer):
         self._last_forget_argmax = None
 
         if circuit_breaker_coeff > 0 and self.checkpoint_model is not None:
-            # Get activations from checkpoint model (source/target for MSE)
+            # Checkpoint model activations via hooks (single forward pass)
+            ckpt_capturer = ActivationCapture(
+                self.checkpoint_model, self.checkpoint_target_modules
+            )
+            ckpt_capturer.register()
             with torch.no_grad():
-                checkpoint_cb_outputs = self.checkpoint_model(**cb_inputs_dict)[module]
-                checkpoint_logits = self.checkpoint_model(**cb_inputs_dict).logits
+                checkpoint_outputs = self.checkpoint_model(**cb_inputs_dict)
+                checkpoint_logits = checkpoint_outputs.logits
 
-            # Get activations from current model (trainable)
-            lora_cb_outputs = unwrapped_model(**cb_inputs_dict)[module]
-            lora_logits = unwrapped_model(**cb_inputs_dict).logits
+            # Training model activations via hooks (single forward pass)
+            model_capturer = ActivationCapture(
+                unwrapped_model, self.target_module_names
+            )
+            model_capturer.register()
+            lora_outputs = unwrapped_model(**cb_inputs_dict)
+            lora_logits = lora_outputs.logits
 
             # Argmax matching accuracy for forget
             if log_now:
@@ -334,16 +360,18 @@ class RRTrainer(UnlearningTrainer):
             mask_expanded = circuit_breaker_attention_mask.unsqueeze(-1).float()
             valid_tokens = mask_expanded.sum()
 
-            for layer_idx in self.lora_target_layers:
-                if self.affine_transforms and layer_idx in self.affine_transforms:
-                    raw_target_act = checkpoint_cb_outputs[layer_idx].detach()
-                    target_act = self.affine_transforms[layer_idx](raw_target_act)
+            for l in self.lora_target_layers:
+                ckpt_name = self.checkpoint_layer_names[l]
+                model_name = self.layer_id_to_name[l]
+
+                if self.affine_transforms and l in self.affine_transforms:
+                    raw_target_act = ckpt_capturer.activations[ckpt_name].detach()
+                    target_act = self.affine_transforms[l](raw_target_act)
                 else:
-                    target_act = checkpoint_cb_outputs[layer_idx].detach()
+                    target_act = ckpt_capturer.activations[ckpt_name].detach()
 
-                pred_act = lora_cb_outputs[layer_idx]
+                pred_act = model_capturer.activations[model_name]
 
-                # Cast to float32 for stable MSE computation
                 target_masked = (target_act * mask_expanded).float()
                 pred_masked = (pred_act * mask_expanded).float()
 
@@ -359,47 +387,48 @@ class RRTrainer(UnlearningTrainer):
 
             circuit_breaker_loss = cb_loss_accumulator / len(self.lora_target_layers)
 
-            del checkpoint_cb_outputs, lora_cb_outputs
+            ckpt_capturer.remove()
+            model_capturer.remove()
             gc.collect()
 
         elif circuit_breaker_coeff > 0:
-            # Fallback: use original disable_adapter method if no checkpoint_model
-            broadcast_cb_mask = circuit_breaker_attention_mask.unsqueeze(0).unsqueeze(
-                -1
+            # Fallback: use disable_adapter method if no checkpoint_model
+            fallback_capturer = ActivationCapture(
+                unwrapped_model, self.target_module_names
             )
+            fallback_capturer.register()
+
             with unwrapped_model.disable_adapter():
                 unwrapped_model.eval()
                 with torch.no_grad():
-                    circuit_breaker_outputs = unwrapped_model(**cb_inputs_dict)[module]
-                    circuit_breaker_hidden = torch.stack(
-                        [
-                            circuit_breaker_outputs[l].detach()
-                            for l in self.lora_target_layers
-                        ]
-                    )
-                    del circuit_breaker_outputs
+                    unwrapped_model(**cb_inputs_dict)
+                    orig_cb_acts = {}
+                    for l in self.lora_target_layers:
+                        name = self.layer_id_to_name[l]
+                        orig_cb_acts[l] = fallback_capturer.activations[name].detach()
+                    fallback_capturer.clear()
 
             unwrapped_model.train()
-            lora_circuit_breaker_outputs = unwrapped_model(**cb_inputs_dict)[module]
-            lora_circuit_breaker_hidden = torch.stack(
-                [lora_circuit_breaker_outputs[l] for l in self.lora_target_layers]
-            )
+            unwrapped_model(**cb_inputs_dict)
 
-            normalized_lora = lora_circuit_breaker_hidden / (
-                torch.norm(
-                    lora_circuit_breaker_hidden, dim=-1, keepdim=True, dtype=torch.float
-                )
-            )
-            normalized_cb = circuit_breaker_hidden / (
-                torch.norm(
-                    circuit_breaker_hidden, dim=-1, keepdim=True, dtype=torch.float
-                )
-            )
-            inner_product = (normalized_lora * normalized_cb) * broadcast_cb_mask
             denom = circuit_breaker_attention_mask.sum() * len(self.lora_target_layers)
-            circuit_breaker_loss = torch.relu(inner_product.nansum(dim=-1)).nansum() / (
-                denom + 1e-6
-            )
+            cb_loss_total = torch.tensor(0.0, device=target_device)
+            for l in self.lora_target_layers:
+                name = self.layer_id_to_name[l]
+                lora_h = fallback_capturer.activations[name]
+                ref_h = orig_cb_acts[l]
+                norm_lora = lora_h / torch.norm(
+                    lora_h, dim=-1, keepdim=True, dtype=torch.float
+                )
+                norm_ref = ref_h / torch.norm(
+                    ref_h, dim=-1, keepdim=True, dtype=torch.float
+                )
+                cos_sim = (norm_lora * norm_ref).sum(dim=-1)
+                cos_sim = cos_sim * circuit_breaker_attention_mask
+                cb_loss_total = cb_loss_total + torch.relu(cos_sim).sum()
+
+            circuit_breaker_loss = cb_loss_total / (denom + 1e-6)
+            fallback_capturer.remove()
 
         # ========================================================================
         # Total Loss

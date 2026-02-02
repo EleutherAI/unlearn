@@ -126,8 +126,7 @@ class RRTrainer(UnlearningTrainer):
         circuit_breaker_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
         orth_coeff = self.orth_coef * (1 - 0.25 * scheduled_coeff)
 
-        broadcast_retain_mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
-        broadcast_cb_mask = circuit_breaker_attention_mask.unsqueeze(0).unsqueeze(-1)
+        retain_mask = retain_attention_mask.unsqueeze(-1)
 
         # Initialize Hook Manager
         # We use unwrapped_model here to ensure names match what we resolved in __init__
@@ -142,31 +141,22 @@ class RRTrainer(UnlearningTrainer):
                 ### Retain control
                 if retain_coeff > 0:
                     unwrapped_model(**retain_inputs_dict)
-                    # Extract and Stack
-                    # Logic: Map the requested layer IDs -> Get Name -> Get Tensor
-                    orig_retain_hidden = torch.stack(
-                        [
-                            capturer.activations[self.layer_id_to_name[l]].detach()
-                            for l in self.lora_target_layers
-                        ]
-                    )
-                    orig_retain_hidden *= broadcast_retain_mask
+                    orig_retain_acts = {}
+                    for l in self.lora_target_layers:
+                        name = self.layer_id_to_name[l]
+                        orig_retain_acts[l] = (
+                            capturer.activations[name].detach() * retain_mask
+                        )
 
-                # Clear activations to free memory before next pass, but
-                # keep hooks if needed
-                # Actually simpler to just capture both if memory allows,
-                # but separating is safer
-                capturer.activations = {}
+                capturer.clear()
 
                 ### Circuit Breaker control
                 if circuit_breaker_coeff > 0:
                     unwrapped_model(**cb_inputs_dict)
-                    circuit_breaker_hidden = torch.stack(
-                        [
-                            capturer.activations[self.layer_id_to_name[l]].detach()
-                            for l in self.lora_target_layers
-                        ]
-                    )
+                    orig_cb_acts = {}
+                    for l in self.lora_target_layers:
+                        name = self.layer_id_to_name[l]
+                        orig_cb_acts[l] = capturer.activations[name].detach()
 
             capturer.remove()  # Remove hooks
 
@@ -181,19 +171,20 @@ class RRTrainer(UnlearningTrainer):
         if retain_coeff > 0:
             unwrapped_model(**retain_inputs_dict)
 
-            lora_retain_hidden = torch.stack(
-                [
-                    capturer.activations[self.layer_id_to_name[l]]
-                    for l in self.lora_target_layers
-                ]
-            )
-            lora_retain_hidden = lora_retain_hidden * broadcast_retain_mask
+            n_layers = len(self.lora_target_layers)
+            retain_loss = torch.tensor(0.0, device=target_device)
+            for l in self.lora_target_layers:
+                name = self.layer_id_to_name[l]
+                lora_h = capturer.activations[name] * retain_mask
+                retain_loss = (
+                    retain_loss
+                    + torch.norm(
+                        lora_h - orig_retain_acts[l], dim=-1, p=2, dtype=torch.float
+                    ).nanmean()
+                )
+            retain_loss = retain_loss / n_layers
 
-            retain_loss = torch.norm(
-                lora_retain_hidden - orig_retain_hidden, dim=-1, p=2, dtype=torch.float
-            ).nanmean()
-
-            capturer.activations = {}  # Clear for next input
+            capturer.clear()
         else:
             retain_loss = 0
 
@@ -201,74 +192,51 @@ class RRTrainer(UnlearningTrainer):
         if circuit_breaker_coeff > 0:
             unwrapped_model(**cb_inputs_dict)
 
-            lora_circuit_breaker_hidden = torch.stack(
-                [
-                    capturer.activations[self.layer_id_to_name[l]]
-                    for l in self.lora_target_layers
-                ]
-            )
-
-            # Normalize
-            normalized_lora_circuit_breaker_outputs = lora_circuit_breaker_hidden / (
-                torch.norm(
-                    lora_circuit_breaker_hidden, dim=-1, keepdim=True, dtype=torch.float
-                )
-            )
-            normalized_circuit_breaker_outputs = circuit_breaker_hidden / (
-                torch.norm(
-                    circuit_breaker_hidden, dim=-1, keepdim=True, dtype=torch.float
-                )
-            )
-
-            inner_product = (
-                normalized_lora_circuit_breaker_outputs
-                * normalized_circuit_breaker_outputs
-            ) * broadcast_cb_mask
-
             denom = circuit_breaker_attention_mask.sum() * len(self.lora_target_layers)
-            circuit_breaker_loss = torch.relu(inner_product.nansum(dim=-1)).nansum() / (
-                denom + 1e-6
-            )
+            cb_loss_total = torch.tensor(0.0, device=target_device)
 
-            # Inter-item orthogonality loss: penalize similarity between different
-            # forget items in the batch to encourage diverse forget directions
+            cb_mask = circuit_breaker_attention_mask.unsqueeze(-1)  # [B, S, 1]
             if self.orth_coef > 0:
-                # Mean pool over sequence dimension: [layers, batch, hidden]
-                # Use attention mask for proper averaging
-                cb_mask_sum = circuit_breaker_attention_mask.sum(dim=1, keepdim=True)
-                cb_mask_sum = cb_mask_sum.clamp(min=1.0)
-                masked_outputs = (
-                    lora_circuit_breaker_hidden * broadcast_cb_mask
-                )  # [layers, batch, seq, hidden]
-                pooled = masked_outputs.sum(dim=2) / cb_mask_sum.unsqueeze(
-                    0
-                )  # [layers, batch, hidden]
-
-                # Normalize pooled representations
-                pooled_norm = pooled / (
-                    torch.norm(pooled, dim=-1, keepdim=True, dtype=torch.float) + 1e-8
+                cb_mask_sum = circuit_breaker_attention_mask.sum(
+                    dim=1, keepdim=True
+                ).clamp(min=1.0)
+                batch_size = circuit_breaker_input_ids.shape[0]
+                diag_mask = 1.0 - torch.eye(
+                    batch_size, device=target_device, dtype=torch.float
                 )
+                orth_loss_total = torch.tensor(0.0, device=target_device)
 
-                # Compute pairwise cosine similarities: [layers, batch, batch]
-                # similarity[l, i, j] = cosine_sim(item_i, item_j) at layer l
-                pairwise_sim = torch.bmm(
-                    pooled_norm, pooled_norm.transpose(1, 2)
-                )  # [layers, batch, batch]
+            for l in self.lora_target_layers:
+                name = self.layer_id_to_name[l]
+                lora_h = capturer.activations[name]
+                ref_h = orig_cb_acts[l]
 
-                # Mask out diagonal (self-similarity) and compute loss
-                batch_size = pairwise_sim.shape[1]
-                diag_mask = (
-                    1.0
-                    - torch.eye(
-                        batch_size, device=pairwise_sim.device, dtype=torch.float
+                norm_lora = lora_h / torch.norm(
+                    lora_h, dim=-1, keepdim=True, dtype=torch.float
+                )
+                norm_ref = ref_h / torch.norm(
+                    ref_h, dim=-1, keepdim=True, dtype=torch.float
+                )
+                cos_sim = (norm_lora * norm_ref).sum(dim=-1)
+                cos_sim = cos_sim * circuit_breaker_attention_mask
+                cb_loss_total = cb_loss_total + torch.relu(cos_sim).sum()
+
+                if self.orth_coef > 0:
+                    masked = lora_h * cb_mask
+                    pooled = masked.sum(dim=1) / cb_mask_sum
+                    pooled_n = pooled / (
+                        torch.norm(pooled, dim=-1, keepdim=True, dtype=torch.float)
+                        + 1e-8
                     )
-                ).unsqueeze(0)
-                off_diag_sim = pairwise_sim * diag_mask
+                    sim = pooled_n @ pooled_n.T
+                    off_diag = sim * diag_mask
+                    orth_loss_total = orth_loss_total + torch.relu(off_diag).sum()
 
-                # Penalize positive similarity (want orthogonal = zero similarity)
-                # ReLU to only penalize when vectors point in same direction
+            circuit_breaker_loss = cb_loss_total / (denom + 1e-6)
+
+            if self.orth_coef > 0:
                 num_pairs = batch_size * (batch_size - 1) * len(self.lora_target_layers)
-                orth_loss = torch.relu(off_diag_sim).sum() / (num_pairs + 1e-6)
+                orth_loss = orth_loss_total / (num_pairs + 1e-6)
             else:
                 orth_loss = torch.tensor(0.0, device=target_device)
         else:

@@ -32,6 +32,10 @@ Unlearning hyperparameters generally don't transfer between number of training s
 
 Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the markdown.
 
+## Learning rates
+
+When training a LoRA the most common successful value is lr=1e-3. When doing SFT it's between 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug.
+
 # Development
 
 Use `pre-commit run --all-files` if you forget to install precommit and it doesn't run in the hook.

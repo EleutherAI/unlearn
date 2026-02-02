@@ -19,7 +19,7 @@ Note that hyperparameters don't transfer between number of training steps.
 - retain_coeff ramps from 0 → retain_coef over training
 - forget_coeff ramps from remove_coef → 0.75*remove_coef over training
 
-## Experiments
+## Initial Experiments
 
 ### L2 Norm Retain Loss (LoRA)
 
@@ -30,27 +30,21 @@ Note that hyperparameters don't transfer between number of training steps.
 | 2 | 28→16 (step 4) | 20 | 5 | 128 | 0.3076 | 0.4454 | |
 | 3 | 28→16 (step 4) | 30 | 5 | 128 | 0.2995 | 0.4458 | |
 | 4 | 28→16 (step 4) | 40 | 5 | 128 | 0.2961 | 0.4410 | |
-| 5 | 28→16 (step 4) | 50 | 5 | 128 | **0.2684** | **0.4437** | Below random (0.25) |
+| 5 | 28→16 (step 4) | 50 | 5 | 128 | **0.2684** | **0.4437** | Random (~0.25) |
 | 6 | 28→16 (step 4) | 50 | 5 | 1280 | 0.2535 | 0.2540 | 10x examples, MMLU collapsed |
 | 7 | 28→16 (step 4) | 50 | 5 | 128 | 0.2535 | 0.2540 | Hook migration v1 (4-layer retain), Job 2088651 |
 | 8 | 28→16 (step 4) | 50 | 5 | 128 | 0.3076 | 0.4488 | Hook migration v2 (all-layer retain), Job 2088695 |
 
-### KL Retain Loss (LoRA)
+### KL Retain Loss (LoRA) - Worse Than L2 Norm Activation Retain
 
 | Run | Layers | remove_coef | retain_coef | Steps | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-------|-----------------|------|-------|
 | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 1 | 28→16 (step 4) | 50 | 5 | 128 | 0.2673 | 0.2295 | Collapsed |
-| 2 | 28→16 (step 4) | 20 | 10 | 128 | 0.2673 | - | Collapsed |
-| 3 | 28→16 (step 4) | 30 | 10 | 128 | 0.2673 | - | Collapsed |
-| 4 | 28→16 (step 4) | 20 | 20 | 128 | 0.2673 | 0.2295 | Collapsed |
-| 5 | 28→16 (step 4) | 10 | 20 | 128 | 0.2673 | - | Collapsed |
-| 6 | 28→16 (step 4) | 10 | 50 | 128 | 0.2673 | 0.2295 | Collapsed |
 | 7 | 28→16 (step 4) | 5 | 50 | 128 | 0.2730 | 0.4034 | Works |
 | 8 | 28→16 (step 4) | 5 | 100 | 128 | **0.2788** | **0.4195** | Best KL |
 | 9 | 28→16 (step 4) | 5 | 100 | 1280 | 0.2673 | 0.2295 | 10x examples |
-| 10 | 28→16 (step 4) | 5 | 100 | 128 | 0.2673 | 0.2295 | Hook migration v1, collapsed, Job 2088652 |
-| 11 | 28→16 (step 4) | 5 | 100 | 128 | 0.2558 | 0.3532 | Hook migration v2, Job 2088696 |
+| 12 | 28→16 (step 4) | 5 | 100 | 128 | **0.3237** | **0.4375** | Hook off-by-one fix, Job 2109953 |
 
 ### Max Entropy KL Forget Loss, L2 Retain Loss (LoRA)
 
@@ -61,67 +55,108 @@ Note that hyperparameters don't transfer between number of training steps.
 | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 1 | 31→11 (step 4) | 10 | 5 | 192 | 2.55 | 1.05 | 0.2857 | 0.4067 | |
 
-### Max Entropy KL Forget Loss, KL Retain Loss (SFT, FSDP)
+### Max Entropy KL Forget Loss, KL Retain Loss (Naive SFT, breaks differential unlearning)
 
 1024 examples, layers 31→8 (step 4), 2 nodes / 8 GPUs, pdbs=1, grad_accum=4, 128 steps/phase, 768 total steps.
 
 | Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
-| - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 1 | 31→11 (step 4) | 5 | 20 | 1e-3 | 768 | ~7300 | 1.22 | 0.2419 | 0.2453 | Collapsed |
-| 2 | 31→11 (step 4) | 5 | 80 | 1e-5 | 768 | 6.09 | 2.03 | 0.4309 | 0.4515 | No effect |
-| 3 | 31→11 (step 4) | 5 | 80 | 4e-4 | 768 | 797 | 1.15 | 0.2661 | 0.2384 | Collapsed |
-| 4 | 31→11 (step 4) | 5 | 200 | 1e-5 | 768 | 5.96 | 2.03 | 0.4332 | 0.4516 | No effect |
-| 5 | 31→11 (step 4) | 5 | 200 | 4e-4 | 768 | 262 | 1.91 | 0.2696 | 0.2398 | Collapsed |
-| 6 | 31→11 (step 4) | 5 | 400 | 1e-5 | 768 | 5.71 | 2.03 | 0.4332 | 0.4511 | No effect |
-| 7 | 31→11 (step 4) | 5 | 400 | 4e-4 | 768 | 584 | 1.49 | 0.2327 | 0.2453 | Collapsed |
-| 8 | 31→11 (step 4) | 5 | 2000 | 1e-5 | 768 | 3.13 | 1.92 | 0.4332 | 0.4516 | No effect |
-| 9 | 31→11 (step 4) | 5 | 2000 | 4e-4 | 768 | 615 | 1.72 | 0.2650 | 0.2329 | Collapsed |
-| 10 | 31→11 (step 4) | 5 | 80 | 5e-5 | 768 | 50.66 | 1.97 | 0.4355 | 0.4517 | No effect |
-| 11 | 31→11 (step 4) | 5 | 200 | 5e-5 | 768 | 41.43 | 1.97 | 0.4366 | 0.4492 | No effect |
-| 12 | 31→11 (step 4) | 5 | 400 | 5e-5 | 768 | 44.03 | 1.97 | 0.4286 | 0.4510 | No effect |
-| 13 | 31→11 (step 4) | 5 | 2000 | 5e-5 | 768 | 38.69 | 1.97 | 0.4355 | 0.4507 | No effect |
-| 14 | 31→11 (step 4) | 5 | 80 | 8e-5 | 768 | 60.59 | 1.97 | 0.4366 | 0.4432 | No effect |
-| 15 | 31→11 (step 4) | 5 | 200 | 8e-5 | 768 | 63.20 | 1.97 | 0.4332 | 0.4426 | No effect |
-| 16 | 31→11 (step 4) | 5 | 400 | 8e-5 | 768 | 60.81 | 1.97 | 0.4343 | 0.4454 | No effect |
-| 17 | 31→11 (step 4) | 5 | 2000 | 8e-5 | 768 | 59.77 | 1.97 | 0.4274 | 0.4440 | No effect |
 | 18 | 31→11 (step 4) | 5 | 80 | 1e-4 | 768 | 88.39 | 1.96 | 0.4251 | 0.4378 | No effect |
 | 19 | 31→11 (step 4) | 5 | 200 | 1e-4 | 768 | 67.19 | 1.97 | 0.4251 | 0.4401 | No effect |
 | 20 | 31→11 (step 4) | 5 | 400 | 1e-4 | 768 | 70.40 | 1.97 | 0.4286 | 0.4325 | No effect |
 | 21 | 31→11 (step 4) | 5 | 2000 | 1e-4 | 768 | 73.30 | 1.98 | 0.4286 | 0.4363 | No effect |
-| 22 | 31→11 (step 4) | 5 | 200 | 1.5e-4 | 768 | 98.78 | 1.95 | 0.4009 | 0.4241 | |
-| 23 | 31→11 (step 4) | 5 | 2000 | 1.5e-4 | 768 | 93.86 | 1.98 | 0.4055 | 0.4139 | |
-| 24 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 186.70 | 1.96 | 0.3629 | 0.3821 | |
-| 25 | 31→11 (step 4) | 5 | 2000 | 2e-4 | 768 | 125.33 | 1.97 | 0.3675 | 0.3945 | |
+
+| Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
 | 26 | 31→11 (step 4) | 5 | 200 | 3e-4 | 768 | 165.14 | 1.92 | 0.3134 | 0.3186 | Collapsed |
 | 27 | 31→11 (step 4) | 5 | 2000 | 3e-4 | 768 | 208.31 | 1.82 | 0.3065 | 0.3154 | Collapsed |
 
-### Max Entropy KL Forget Loss, KL Retain Loss (SFT, FSDP, Same-Sign Grads)
+| Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
+| 22 | 31→11 (step 4) | 5 | 200 | 1.5e-4 | 768 | 98.78 | 1.95 | 0.4009 | 0.4241 | |
+| 23 | 31→11 (step 4) | 5 | 2000 | 1.5e-4 | 768 | 93.86 | 1.98 | 0.4055 | 0.4139 | |
 
-Same-sign gradient filtering: separate backward passes for retain and forget losses. Only parameter elements where both gradients agree in sign receive updates. Combined with layer-wise gradient freezing.
+| Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
+| 24 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 186.70 | 1.96 | 0.3629 | 0.3821 | |
+| 25 | 31→11 (step 4) | 5 | 2000 | 2e-4 | 768 | 125.33 | 1.97 | 0.3675 | 0.3945 | |
+| 28 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 8.57 | 2.03 | 0.4343 | 0.4528 | max_grad_norm=0 |
+| 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 1.70 | 1.87 | 0.3986 | 0.4519 | nll_retain |
 
-1024 examples, layers 31→8 (step 4), 2 nodes / 8 GPUs, pdbs=1, grad_accum=4, 128 steps/phase, 768 total steps.
+## Stabilizing SFT - Ablations
+
+All ablations use max entropy KL forget loss, KL retain loss, full SFT with same-sign gradient filtering and layer-wise gradient freezing. 1024 examples, layers 31→8 (step 4), 2 nodes / 8 GPUs, pdbs=1, grad_accum=4, 128 steps/phase, 768 total steps.
+
+### Same-Sign Grads (Some Unlearning, Partial MMLU Degradation)
+
+Separate backward passes for retain and forget losses. Only update parameter elements where both gradients agree in sign.
 
 | Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 1 | 31→11 (step 4) | 5 | 200 | 2e-3 | 768 | | | | | |
-| 2 | 31→11 (step 4) | 5 | 2000 | 2e-3 | 768 | | | | | |
-| 3 | 31→11 (step 4) | 5 | 200 | 3e-3 | 768 | | | | | |
-| 4 | 31→11 (step 4) | 5 | 2000 | 3e-3 | 768 | | | | | |
-| 5 | 31→11 (step 4) | 5 | 200 | 5e-3 | 768 | | | | | |
-| 6 | 31→11 (step 4) | 5 | 2000 | 5e-3 | 768 | | | | | |
-| 7 | 31→11 (step 4) | 5 | 200 | 1e-2 | 768 | | | | | |
-| 8 | 31→11 (step 4) | 5 | 2000 | 1e-2 | 768 | | | | | |
+| 1 | 31→11 (step 4) | 5 | 20 | 2e-4 | 768 | 126.39 | 1.56 | 0.2949 | 0.3788 | |
+| 2 | 31→11 (step 4) | 5 | 80 | 2e-4 | 768 | 126.52 | 1.56 | 0.2938 | 0.3787 | |
+| 3 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 148.53 | 1.54 | 0.2938 | 0.3786 | |
+| 4 | 31→11 (step 4) | 5 | 2000 | 2e-4 | 768 | 126.40 | 1.56 | 0.2938 | 0.3782 | |
+| 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | | | | | max_grad_norm=0.3 |
 
-## Hyperparameters (all runs)
+### Same-Sign + Asymmetric Filter (Little Unlearning)
+
+Forget grads zeroed where they disagree with retain; all retain grads kept.
+
+| Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 5 | 31→11 (step 4) | 5 | 5 | 2e-4 | 768 | 9.47 | 1.97 | 0.4240 | | |
+| 12 | 31→11 (step 4) | 5 | 2000 | 2e-4 | 768 | 10.93 | 1.97 | 0.4274 | | |
+
+### Same-Sign + Asymmetric Filter + Ramp Retain from Zero (Partial MMLU Degradation)
+
+Retain coeff ramps from 0 (instead of 0.25x) over training.
+
+| Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 13 | 31→11 (step 4) | 5 | 1 | 5e-4 | 768 | 40.03 | 1.81 | 0.4101 | 0.4511 | |
+| 14 | 31→11 (step 4) | 5 | 1 | 1e-3 | 768 | 74.63 | 1.76 | 0.3825 | 0.4383 | |
+| 15 | 31→11 (step 4) | 5 | 1 | 2e-3 | 768 | 191.64 | 1.50 | 0.3560 | 0.3947 | |
+| 16 | 31→11 (step 4) | 5 | 5 | 1e-3 | 768 | | | 0.4528 | | |
+
+### Same-Sign + Asymmetric Filter + Ramp Retain from Zero + L2-SP (Partial Unlearning + Good MMLU Retention)
+
+L2-SP: regularize weights toward pretrained initialization (λ||w − w₀||²) computed via forward hook on the target layer.
+
+| Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 17 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | 74.28 | 1.76 | 0.3963 | 0.4593 | |
+| 18 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.1 | 768 | 42.37 | 1.84 | 0.4136 | 0.4494 | |
+| 19 | 31→11 (step 4) | 5 | 1 | 1e-3 | 1.0 | 768 | 18.49 | 1.96 | 0.4332 | 0.4517 | |
+| 20 | 31→11 (step 4) | 5 | 1 | 2e-3 | 0.1 | 768 | 106.20 | 1.75 | 0.4009 | 0.4270 | |
+
+### L2-SP Only (No Same-Sign, Asymmetric, or Ramp)
+
+L2-SP regularization without gradient filtering. l2sp_coef=0.01, retain_coef=200.
+
+| Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 21 | 31→11 (step 4) | 5 | 200 | 1e-4 | 0.01 | 768 | 3.08 | 1.92 | 0.4332 | | No effect |
+| 22 | 31→11 (step 4) | 10 | 200 | 1e-4 | 0.01 | 768 | 3.02 | 1.92 | 0.4320 | | No effect |
+| 23 | 31→11 (step 4) | 20 | 200 | 1e-4 | 0.01 | 768 | 3.40 | 1.92 | 0.4355 | | No effect |
+| 24 | 31→11 (step 4) | 40 | 200 | 1e-4 | 0.01 | 768 | 3.31 | 2.03 | 0.4366 | | No effect |
+| 25 | 31→11 (step 4) | 5 | 200 | 2e-4 | 0.01 | 768 | 11.03 | 2.03 | 0.4309 | | No effect |
+| 26 | 31→11 (step 4) | 10 | 200 | 2e-4 | 0.01 | 768 | 9.58 | 2.03 | 0.4343 | | No effect |
+| 27 | 31→11 (step 4) | 20 | 200 | 2e-4 | 0.01 | 768 | 10.69 | 1.92 | 0.4263 | | No effect |
+| 28 | 31→11 (step 4) | 40 | 200 | 2e-4 | 0.01 | 768 | 10.64 | 1.92 | 0.4297 | | No effect |
+
+## Default Hyperparameters
 
 | Parameter | Value |
 |-----------|-------|
 | per_device_batch_size | 4 |
 | gradient_accumulation | 2 |
 | global_batch_size | 32 |
-| learning_rate | 1e-3 |
 | lora_r | 16 |
 | epochs_per_layer | 1 |
 | layers_unlearned | 28, 24, 20, 16 |

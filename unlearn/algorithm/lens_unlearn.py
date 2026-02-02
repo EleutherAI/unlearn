@@ -124,7 +124,7 @@ class RRTrainer(UnlearningTrainer):
         retain_coeff = self.retain_coef * scheduled_coeff
         circuit_breaker_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
 
-        broadcast_retain_mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
+        retain_mask = retain_attention_mask.unsqueeze(-1)
 
         capturer = ActivationCapture(unwrapped_model, self.target_module_names)
 
@@ -136,13 +136,12 @@ class RRTrainer(UnlearningTrainer):
             with torch.no_grad():
                 if retain_coeff > 0:
                     unwrapped_model(**retain_inputs_dict)
-                    orig_retain_hidden = torch.stack(
-                        [
-                            capturer.activations[self.layer_id_to_name[l]].detach()
-                            for l in self.lora_target_layers
-                        ]
-                    )
-                    orig_retain_hidden *= broadcast_retain_mask
+                    orig_retain_acts = {}
+                    for l in self.lora_target_layers:
+                        name = self.layer_id_to_name[l]
+                        orig_retain_acts[l] = (
+                            capturer.activations[name].detach() * retain_mask
+                        )
 
             capturer.remove()
 
@@ -155,17 +154,18 @@ class RRTrainer(UnlearningTrainer):
         if retain_coeff > 0:
             unwrapped_model(**retain_inputs_dict)
 
-            lora_retain_hidden = torch.stack(
-                [
-                    capturer.activations[self.layer_id_to_name[l]]
-                    for l in self.lora_target_layers
-                ]
-            )
-            lora_retain_hidden = lora_retain_hidden * broadcast_retain_mask
-
-            retain_loss = torch.norm(
-                lora_retain_hidden - orig_retain_hidden, dim=-1, p=2, dtype=torch.float
-            ).nanmean()
+            n_layers = len(self.lora_target_layers)
+            retain_loss = torch.tensor(0.0, device=target_device)
+            for l in self.lora_target_layers:
+                name = self.layer_id_to_name[l]
+                lora_h = capturer.activations[name] * retain_mask
+                retain_loss = (
+                    retain_loss
+                    + torch.norm(
+                        lora_h - orig_retain_acts[l], dim=-1, p=2, dtype=torch.float
+                    ).nanmean()
+                )
+            retain_loss = retain_loss / n_layers
 
             capturer.clear()
         else:

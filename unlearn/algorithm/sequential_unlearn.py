@@ -11,7 +11,7 @@ This ensures each layer is verified unlearned with clean inputs from earlier lay
 
 import os
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import torch
@@ -124,6 +124,7 @@ class SequentialUnlearningTrainer(Trainer):
         train_dataset,
         tokenizer,
         target_layer,
+        retain_layers=None,
         **kwargs,
     ):
         super().__init__(
@@ -143,11 +144,22 @@ class SequentialUnlearningTrainer(Trainer):
             param.requires_grad = False
         self.original_model.eval()
 
-        # Resolve hook layer for forget path (output of block target_layer - 1)
-        forget_hook_layer = target_layer - 1 if target_layer > 0 else 0
-        hook_layer_indices = [forget_hook_layer]
+        # Resolve hook layer for forget path (output of target_layer)
+        hook_layer_indices = [target_layer]
         self.layer_id_to_name = resolve_layer_names(model, hook_layer_indices)
         self.target_module_names = list(self.layer_id_to_name.values())
+
+        # Resolve layers for retain L2 loss
+        self.retain_layers = retain_layers or []
+        if self.retain_layers:
+            self.retain_layer_names = resolve_layer_names(model, self.retain_layers)
+            self.retain_target_modules = list(self.retain_layer_names.values())
+            self.orig_retain_layer_names = resolve_layer_names(
+                original_model, self.retain_layers
+            )
+            self.orig_retain_target_modules = list(
+                self.orig_retain_layer_names.values()
+            )
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -221,44 +233,64 @@ class SequentialUnlearningTrainer(Trainer):
                     current_log_probs, orig_probs, reduction="batchmean"
                 )
             else:
-                # L2 on all hidden states (matching original behavior)
+                # L2 on hidden states at targeted layers
+                retain_mask = retain_attention_mask.unsqueeze(-1)
+
+                orig_capturer = ActivationCapture(
+                    self.original_model, self.orig_retain_target_modules
+                )
+                orig_capturer.register()
                 with torch.no_grad():
-                    orig_outputs = self.original_model(
+                    self.original_model(
                         input_ids=retain_input_ids,
                         attention_mask=retain_attention_mask,
-                        output_hidden_states=True,
                     )
-                    orig_hidden = torch.stack(orig_outputs.hidden_states).detach()
+                orig_retain_acts = {}
+                for l in self.retain_layers:
+                    name = self.orig_retain_layer_names[l]
+                    orig_retain_acts[l] = (
+                        orig_capturer.activations[name].detach() * retain_mask
+                    )
+                orig_capturer.remove()
 
-                current_outputs = unwrapped_model(
+                current_capturer = ActivationCapture(
+                    unwrapped_model, self.retain_target_modules
+                )
+                current_capturer.register()
+                unwrapped_model(
                     input_ids=retain_input_ids,
                     attention_mask=retain_attention_mask,
-                    output_hidden_states=True,
                 )
-                current_hidden = torch.stack(current_outputs.hidden_states)
 
-                mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
-                retain_loss = torch.norm(
-                    (current_hidden - orig_hidden) * mask,
-                    dim=-1,
-                    p=2,
-                    dtype=torch.float,
-                ).nanmean()
+                n_layers = len(self.retain_layers)
+                retain_loss = torch.tensor(0.0, device=device)
+                for l in self.retain_layers:
+                    name = self.retain_layer_names[l]
+                    lora_h = current_capturer.activations[name] * retain_mask
+                    retain_loss = (
+                        retain_loss
+                        + torch.norm(
+                            lora_h - orig_retain_acts[l],
+                            dim=-1,
+                            p=2,
+                            dtype=torch.float,
+                        ).nanmean()
+                    )
+                retain_loss = retain_loss / n_layers
+                current_capturer.remove()
         else:
             retain_loss = torch.tensor(0.0, device=device)
 
         # === Forget loss: maximize entropy via original model's later layers ===
         if forget_coeff > 0:
-            # Hook on layers.{target_layer - 1} captures output of block
-            # target_layer - 1, which is input to block target_layer
+            # Hook on target_layer captures its output; gradient flows through it
             capturer.register()
             unwrapped_model(
                 input_ids=forget_input_ids,
                 attention_mask=forget_attention_mask,
             )
-            forget_hook_layer = self.target_layer - 1 if self.target_layer > 0 else 0
             hidden_at_layer = capturer.activations[
-                self.layer_id_to_name[forget_hook_layer]
+                self.layer_id_to_name[self.target_layer]
             ]
             capturer.remove()
 
@@ -266,7 +298,7 @@ class SequentialUnlearningTrainer(Trainer):
             logits = forward_from_layer(
                 self.original_model,
                 hidden_at_layer.to(orig_dtype),
-                self.target_layer,
+                self.target_layer + 1,
             )
 
             vocab_size = logits.shape[-1]
@@ -323,6 +355,7 @@ class SequentialUnlearnConfig:
     retain_coef: float = 5.0
     remove_coef: float = 10.0
     retain_loss_type: Literal["l2", "kl"] = "l2"
+    retain_layers: list[int] = field(default_factory=lambda: [5, 10, 15, 20, 25, 30])
     lora_r: int = 16
     start_layer: int | None = None
     end_layer: int = 8
@@ -428,6 +461,7 @@ def main():
             train_dataset=train_dataset,
             tokenizer=tokenizer,
             target_layer=layer_idx,
+            retain_layers=run_cfg.retain_layers,
         )
 
         model.train()
@@ -440,6 +474,7 @@ def main():
     model = model.merge_and_unload()
 
     if run_cfg.save_path:
+        trainer.model = model
         save_checkpoint(trainer, run_cfg.save_path, tokenizer)
 
     print("\nTraining complete")

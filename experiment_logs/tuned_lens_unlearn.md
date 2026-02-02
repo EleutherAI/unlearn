@@ -32,7 +32,7 @@ Unlearning via tuned lens activations - on forget data, representations at each 
 | 1024     | 32    | 3.0         | 1.0         | 1e-3    | 3e-4    | 27.42%       | -           | 29.21%    | -     | Higher retain |
 | 1024     | 32    | 2.5         | 0.5         | 1e-3    | 3e-4    | 42.42%       | -           | 33.56%    | -     | Insufficient unlearn |
 
-### SFT + AdamW Optimizer (SFT default lr=1e-5)
+### SFT + AdamW Optimizer (SFT default lr=1e-4)
 
 Runs below use a bf16 reference model (matching training precision), giving accurate retain_loss values. The retain_coeff schedule was also changed to start at 0.25x (ramping to 1.0x) instead of 0x, and lr warmup was added.
 

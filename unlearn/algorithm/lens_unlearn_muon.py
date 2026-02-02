@@ -113,6 +113,10 @@ class RRTrainer(UnlearningTrainer):
         )
         self.act_capturer.register()
 
+        if reference_model is not None:
+            self.ref_capturer = ActivationCapture(reference_model, target_modules)
+            self.ref_capturer.register()
+
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
@@ -164,28 +168,44 @@ class RRTrainer(UnlearningTrainer):
                 )
                 self.act_capturer.clear()
             else:
+                retain_mask = retain_attention_mask.unsqueeze(-1)
+
                 with torch.no_grad():
-                    ref_outputs = self.reference_model(
+                    self.reference_model(
                         input_ids=retain_input_ids,
                         attention_mask=retain_attention_mask,
-                        output_hidden_states=True,
                     )
-                    ref_hidden = torch.stack(ref_outputs.hidden_states).detach()
+                orig_retain_acts = {}
+                for mod in self.target_modules:
+                    if mod in self.ref_capturer.activations:
+                        layer_idx = int(mod.split(".")[-1])
+                        orig_retain_acts[layer_idx] = (
+                            self.ref_capturer.activations[mod].detach() * retain_mask
+                        )
+                self.ref_capturer.clear()
 
-                current_outputs = model(
+                model(
                     input_ids=retain_input_ids,
                     attention_mask=retain_attention_mask,
-                    output_hidden_states=True,
                 )
-                current_hidden = torch.stack(current_outputs.hidden_states)
 
-                mask = retain_attention_mask.unsqueeze(0).unsqueeze(-1)
-                retain_loss = torch.norm(
-                    (current_hidden - ref_hidden) * mask,
-                    dim=-1,
-                    p=2,
-                    dtype=torch.float,
-                ).nanmean()
+                n_layers = len(self.target_modules)
+                retain_loss = torch.tensor(0.0, device=target_device)
+                for mod in self.target_modules:
+                    if mod in self.act_capturer.activations:
+                        layer_idx = int(mod.split(".")[-1])
+                        lora_h = self.act_capturer.activations[mod] * retain_mask
+                        retain_loss = (
+                            retain_loss
+                            + torch.norm(
+                                lora_h - orig_retain_acts[layer_idx],
+                                dim=-1,
+                                p=2,
+                                dtype=torch.float,
+                            ).nanmean()
+                        )
+                retain_loss = retain_loss / n_layers
+                self.act_capturer.clear()
         else:
             retain_loss = torch.tensor(0.0, device=target_device)
 
