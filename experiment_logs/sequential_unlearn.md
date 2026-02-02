@@ -71,6 +71,7 @@ Retain L2 computed at the current target layer's output. Only the target layer's
 |-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 1 | 31→11 (step 4) | 5 | 5 | 2e-4 | 768 | 1.28 | 1.93 | 0.3929 | 0.4462 | Job 2110034 |
+| 2 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | 1.70 | 1.61 | 0.2834 | 0.4239 | Job 2110068 |
 
 ### Max Entropy KL Forget Loss, KL Retain Loss (Naive SFT, breaks differential unlearning)
 
@@ -148,10 +149,28 @@ L2-SP: regularize weights toward pretrained initialization (λ||w − w₀||²) 
 | Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 17 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | 74.28 | 1.76 | 0.3963 | 0.4593 | |
+| 17 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | 74.28 | 1.76 | **0.3963** | **0.4593** | |
 | 18 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.1 | 768 | 42.37 | 1.84 | 0.4136 | 0.4494 | |
 | 19 | 31→11 (step 4) | 5 | 1 | 1e-3 | 1.0 | 768 | 18.49 | 1.96 | 0.4332 | 0.4517 | |
 | 20 | 31→11 (step 4) | 5 | 1 | 2e-3 | 0.1 | 768 | 106.20 | 1.75 | 0.4009 | 0.4270 | |
+
+### Same-Sign + Asymmetric Filter + Ramp Retain from Zero + L2-SP + UltraChat
+
+Same as above with UltraChat mixed into retain data.
+
+| Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 21 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | | | | | |
+
+### Ramp Retain from Zero + L2-SP + UltraChat (No Same-Sign/Asymmetric)
+
+L2-SP + ramp retain from zero + UltraChat, without gradient filtering.
+
+| Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 22 | 31→11 (step 4) | 5 | 1 | 1e-3 | 0.01 | 768 | | | | | |
 
 ### L2-SP Only (No Same-Sign, Asymmetric, or Ramp)
 
@@ -160,8 +179,10 @@ L2-SP regularization without gradient filtering. l2sp_coef=0.01.
 | Run | Layers | remove_coef | retain_coef | lr | l2sp_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-----------|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 28 | 31→11 (step 4) | 40 | 200 | 2e-4 | 0.01 | 768 | 10.64 | 1.92 | 0.4297 | | No effect |
-| 32 | 31→11 (step 4) | 40 | 5 | 1e-4 | 0.01 | 768 | 3.77 | 1.88 | 0.4320 | | No effect |
+| 28 | 31→11 (step 4) | 40 | 200 | 2e-4 | 0.01 | 768 | 10.64 | 1.92 | 0.4297 | 0.4497 | No effect |
+| 32 | 31→11 (step 4) | 40 | 5 | 1e-4 | 0.01 | 768 | 3.77 | 1.88 | 0.4320 | 0.4506 | No effect |
+| 37 | 31→11 (step 4) | 20 | 5 | 1e-3 | 0.01 | 768 | 81.46 | 1.94 | 0.4055 | 0.4194 | |
+| 38 | 31→11 (step 4) | 2 | 30 | 1e-3 | 0.01 | 768 | | | | | |
 
 ## Default Hyperparameters
 

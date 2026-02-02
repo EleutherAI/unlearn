@@ -1,6 +1,24 @@
 Manually test every change you make by running the appropriate script or CLI command. When you run the script, frequently monitor the output until it appears to be running without issue, and then check again every 30 seconds until either 3 minutes have passed or multiple iteration loops of the main computation have run without error. If you find an error unrelated to your task, at minimum quote back the exact error to the user after completing your task.
 
-## Project Structure and Conventions
+# Experiment Logs and Unlearning Hyperparameters
+
+When you run a training experiment or hyperparameter tune save the settings and results to a markdown file for the algorithm in the experiment_logs directory. Avoid creating new tables - few tables makes comparison easy. Add the baseline model evaluation results as the first row. Save rows for the settings you are about to test first then add results as soon as they're available.
+
+Standard results columns: number of training steps, batch size, final training losses (each available separately logged loss term), MMLU accuracy, WMDP Bio Robust accuracy.
+
+Don't vary the number of training steps on your own initiative.
+
+When you hyperparameter tune an unlearning algorithm your first task is to find the boundary zone between where accuracy drops on both MMLU and WMDP Bio Robust, and where it drops on neither. You second task is to find a good point within that boundary zone - either where both evaluation accuracies drop partway, or where WMDP Bio Robust reduces to random while MMLU is preserved.
+
+Unlearning hyperparameters don't transfer between number of training steps. Only comment on this if you find an exception to the rule.
+
+Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the markdown. Only record the eval results.
+
+## Learning rates
+
+When training a LoRA the most common successful value is lr=1e-3. When doing SFT it's around 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug.
+
+# Project Structure and Conventions
 
 Never save logs, scripts, and other development files into the root of a project. Use an appropriate directory such as `runs/` (for files with only transient value) or `unlearn/scripts/` for files to be committed.
 
@@ -16,25 +34,7 @@ Put imports at the top of the file unless you have a very strong need to do othe
 
 Don't use try/except blocks. Use assert statements if absolutely necessary.
 
-Don't write words that aren't initialisms in ALL CAPS.
-
-# Experiment Logs and Unlearning Hyperparameters
-
-When you run a training experiment or hyperparameter tune save the settings and results to a markdown file for the algorithm in the experiment_logs directory. Avoid creating new tables - few tables makes comparison easy. Add the baseline model evaluation results as the first row. Save rows for the settings you are about to test first then add results when available.
-
-Standard results columns: number of training steps, batch size, final training losses (each available separately logged loss term), MMLU accuracy, WMDP Bio Robust accuracy.
-
-Don't vary the number of training steps on your own initiative.
-
-When you hyperparameter tune an unlearning algorithm your first task is to find the boundary zone between where accuracy drops on both MMLU and WMDP Bio Robust, and where it drops on neither. You second task is to find a good point within that boundary zone - either where both evaluation accuracies drop partway, or where WMDP Bio Robust reduces to random while MMLU is preserved.
-
-Unlearning hyperparameters generally don't transfer between number of training steps. Only comment on this if you find an exception to the rule.
-
-Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the markdown.
-
-## Learning rates
-
-When training a LoRA the most common successful value is lr=1e-3. When doing SFT it's between 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug.
+Don't write regular words in ALL CAPS. Don't use exclamation marks.
 
 # Development
 
@@ -48,7 +48,7 @@ Don't save datasets to repository directories not in the .gitignore.
 
 When you follow project conventions don't leave a comment saying (following project conventions) or similar drivel. More broadly, don't centre yourself or your decisions in the codebase. Only leave comments that are useful to other users. Boilerplate code should be self-documenting.
 
-### Tests and Evaluations
+## Tests and Evaluations
 
 Mark tests requiring GPUs with `@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")`.
 
@@ -67,7 +67,7 @@ results = simple_evaluate(
 
 When you run the LM Eval Harness use all available GPUs on the node. You may need to launch a script using `subprocess` and capture its output.
 
-### Environment Setup
+## Environment Setup
 
 If you use need to use a venv, create and/or activate it with `python3 -m venv .venv && source .venv/bin/activate`.
 

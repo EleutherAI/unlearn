@@ -413,10 +413,9 @@ class SequentialSftUnlearnConfig:
     layer_step: int = 4
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"
     save_path: str = ""
-    revision: str = "main"
     epochs_per_layer: int = 1
     warmup_ratio: float = 0.0
-    use_ultrachat: bool = False
+    use_ultrachat: bool = True
     use_max_entropy_kl: bool = False
     same_sign_grads: bool = False
     asymmetric_filter: bool = False
@@ -445,9 +444,7 @@ if __name__ == "__main__":
     if run_cfg.wandb_project and local_rank == 0:
         wandb.init(project=run_cfg.wandb_project, config=vars(run_cfg))
 
-    model, tokenizer = get_model_and_tokenizer(
-        run_cfg.model_name, revision=run_cfg.revision
-    )
+    model, tokenizer = get_model_and_tokenizer(run_cfg.model_name)
     model = cast(PreTrainedModel, model)
 
     for param in model.parameters():
@@ -458,7 +455,6 @@ if __name__ == "__main__":
 
     frozen_model = AutoModelForCausalLM.from_pretrained(
         run_cfg.model_name,
-        revision=run_cfg.revision,
         torch_dtype=torch.bfloat16,
         device_map={"": local_rank},
     )
