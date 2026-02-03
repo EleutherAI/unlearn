@@ -1,5 +1,6 @@
 """Sequential back-to-front unlearning (SFT - full parameter training with FSDP)."""
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Literal, cast
@@ -18,7 +19,6 @@ from transformers import (
 from transformers.trainer_utils import seed_worker
 
 import wandb
-from unlearn.algorithm.sequential_unlearn import forward_from_layer
 from unlearn.utils.math import max_entropy_kl_loss
 from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
@@ -49,7 +49,15 @@ class SequentialSftTrainer(Trainer):
         self.tokenizer = tokenizer
         self.layers_to_unlearn = layers_to_unlearn
         self.frozen_model = frozen_model
-        self.steps_per_phase = steps_per_phase
+        if isinstance(steps_per_phase, list):
+            self.phase_steps = steps_per_phase
+        else:
+            self.phase_steps = [steps_per_phase] * len(layers_to_unlearn)
+        self.phase_boundaries = []
+        cumulative = 0
+        for s in self.phase_steps:
+            cumulative += s
+            self.phase_boundaries.append(cumulative)
         self.current_training_step = 0
 
     def get_train_dataloader(self) -> DataLoader:
@@ -88,14 +96,16 @@ class SequentialSftTrainer(Trainer):
     def _get_phase_info(self):
         """Handles scheduled information, including the current targeted layer
         and the retain and remove coefficients"""
-        phase_idx = min(
-            self.current_training_step // self.steps_per_phase,
-            len(self.layers_to_unlearn) - 1,
-        )
+        phase_idx = len(self.layers_to_unlearn) - 1
+        for i, boundary in enumerate(self.phase_boundaries):
+            if self.current_training_step < boundary:
+                phase_idx = i
+                break
         target_layer = self.layers_to_unlearn[phase_idx]
 
         world_size = int(os.environ.get("WORLD_SIZE", 1))
-        phase_step = self.current_training_step - phase_idx * self.steps_per_phase
+        phase_start = self.phase_boundaries[phase_idx - 1] if phase_idx > 0 else 0
+        phase_step = self.current_training_step - phase_start
         scheduled_coeff = min(
             1.0,
             phase_step
@@ -179,66 +189,42 @@ class SequentialSftTrainer(Trainer):
         return torch.norm(cur_h - ref_h, dim=-1, p=2, dtype=torch.float).mean()
 
     def _compute_forget_loss(self, model, inputs, target_layer, target_device):
-        """The loss on forget data when routing the activations at the current
-        layer through the original model."""
+        """Forget loss using the model's actual output logits.
+
+        Gradient flows through the full model, but _freeze_and_log zeroes
+        non-target-layer gradients so only the target layer is updated.
+        """
         forget_input_ids = inputs["bio_remove_input_ids"].to(target_device)
         forget_attention_mask = inputs["bio_remove_attention_mask"].to(target_device)
 
         outputs = model(
             input_ids=forget_input_ids,
             attention_mask=forget_attention_mask,
-            output_hidden_states=True,
         )
+        logits = outputs.logits
 
-        # Connect loss to full model output for FSDP backward bookkeeping
-        if hasattr(outputs, "logits"):
-            dummy_loss = outputs.logits.mean() * 0.0
-        elif isinstance(outputs, tuple):
-            dummy_loss = outputs[0].mean() * 0.0
-        else:
-            dummy_loss = outputs.mean() * 0.0
-
-        # hidden_states[L+1] is the output of layer L, so gradient flows through L
-        hidden_at_layer = outputs.hidden_states[target_layer + 1]
-
-        orig_device = next(self.frozen_model.parameters()).device
-        orig_dtype = next(self.frozen_model.parameters()).dtype
-
-        logits = forward_from_layer(
-            self.frozen_model,
-            hidden_at_layer.to(device=orig_device, dtype=orig_dtype),
-            target_layer + 1,
-        )
-
-        mask = forget_attention_mask.bool().to(logits.device)
+        mask = forget_attention_mask.bool()
+        if "bio_remove_keyword_mask" in inputs:
+            keyword_mask = inputs["bio_remove_keyword_mask"].bool().to(target_device)
+            mask = mask & keyword_mask
         logits_masked = logits[mask]
 
         if logits_masked.numel() == 0:
-            return dummy_loss
+            return logits.mean() * 0.0
 
         if self.run_args.use_dpo_forget:
-            # Reference logits: frozen model's hidden states through
-            # the same frozen remaining layers, so both paths are comparable.
+            orig_device = next(self.frozen_model.parameters()).device
             with torch.no_grad():
-                ref_outputs = self.frozen_model(
+                ref_logits = self.frozen_model(
                     forget_input_ids.to(orig_device),
                     attention_mask=forget_attention_mask.to(orig_device),
-                    output_hidden_states=True,
-                )
-                ref_hidden = ref_outputs.hidden_states[target_layer + 1]
-                ref_logits = forward_from_layer(
-                    self.frozen_model,
-                    ref_hidden,
-                    target_layer + 1,
-                )
+                ).logits.to(target_device)
 
-            # Per-token log probs (shifted for next-token prediction)
-            shift_labels = forget_input_ids[:, 1:].to(logits.device)
-            shift_mask = forget_attention_mask[:, 1:].bool().to(logits.device)
+            shift_labels = forget_input_ids[:, 1:]
+            shift_mask = forget_attention_mask[:, 1:].bool()
             total_tokens = shift_mask.sum().clamp(min=1)
             beta = self.run_args.dpo_beta
 
-            # Loss 1: current hidden → frozen layers vs ref hidden → frozen layers
             shift_current = logits[:, :-1, :].float()
             shift_ref = ref_logits[:, :-1, :].float()
 
@@ -259,15 +245,12 @@ class SequentialSftTrainer(Trainer):
                 avg_log_ratios = token_log_ratios.sum(dim=-1) / seq_lengths
                 loss = -F.logsigmoid(-beta * avg_log_ratios).mean()
 
-            return loss.to(target_device) + dummy_loss
+            return loss
 
         elif self.run_args.use_max_entropy_kl:
             vocab_size = logits.shape[-1]
             log_vocab = torch.log(torch.tensor(float(vocab_size), device=target_device))
-            return (
-                max_entropy_kl_loss(logits_masked).to(target_device) / log_vocab
-                + dummy_loss
-            )
+            return max_entropy_kl_loss(logits_masked) / log_vocab
         else:
             vocab_size = logits.shape[-1]
             batch_size, seq_len = logits.shape[:2]
@@ -279,7 +262,7 @@ class SequentialSftTrainer(Trainer):
                 logits_masked.float(), targets_flat, reduction="mean"
             )
             log_vocab = torch.log(torch.tensor(float(vocab_size), device=target_device))
-            return (ce_loss / log_vocab).to(target_device) + dummy_loss
+            return ce_loss / log_vocab
 
     def _freeze_and_log(self, model, current_step, target_layer, extra=""):
         target_str = f".layers.{target_layer}."
@@ -415,6 +398,15 @@ class SequentialSftTrainer(Trainer):
         )
         self._freeze_and_log(model, self.current_training_step, target_layer, extra)
 
+        # Keyword mask stats
+        keyword_mask_frac = None
+        if "bio_remove_keyword_mask" in inputs:
+            km = inputs["bio_remove_keyword_mask"]
+            attn = inputs["bio_remove_attention_mask"]
+            attn_tokens = attn.sum().item()
+            keyword_tokens = (km.bool() & attn.bool()).sum().item()
+            keyword_mask_frac = keyword_tokens / max(attn_tokens, 1)
+
         # Logging
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
             if self.current_training_step % 8 == 0:
@@ -431,6 +423,8 @@ class SequentialSftTrainer(Trainer):
                     msg += f" | same_sign: {same_sign_pct:.1f}%"
                 if l2sp_norm > 0:
                     msg += f" | l2sp: {l2sp_norm:.4f}"
+                if keyword_mask_frac is not None:
+                    msg += f" | kw_mask: {keyword_mask_frac:.3f}"
                 print(msg)
 
             if wandb.run is not None:
@@ -448,6 +442,8 @@ class SequentialSftTrainer(Trainer):
                     log_dict["same_sign_pct"] = same_sign_pct
                 if l2sp_norm > 0:
                     log_dict["l2sp_norm"] = l2sp_norm
+                if keyword_mask_frac is not None:
+                    log_dict["keyword_mask_frac"] = keyword_mask_frac
                 wandb.log(log_dict, step=self.current_training_step)
 
         self.current_training_step += 1
@@ -483,10 +479,15 @@ class SequentialSftUnlearnConfig:
     dpo_per_token: bool = False
     dpo_beta: float = 0.1
     forget_layer_scale: float = 1.0
+    deep_layer_step_scale: float = 1.0
     optimizer: Literal["muon", "adamw"] = "adamw"
     muon_lr: float = 0.02
     muon_momentum: float = 0.95
     wandb_project: str = ""
+    blocklist_path: str = ""
+    keyword_mask_method: Literal["regex", "activation"] = "regex"
+    activation_mask_threshold: float = 0.2
+    activation_mask_layer: int = 16
 
 
 if __name__ == "__main__":
@@ -537,18 +538,30 @@ if __name__ == "__main__":
 
     global_batch_size = 32
     grad_acc_steps = max(1, global_batch_size // (run_cfg.pdbs * world_size))
-    steps_per_phase = max(
+    base_steps_per_phase = max(
         1,
         run_cfg.epochs_per_layer * len(train_dataset) // (world_size * run_cfg.pdbs),
     )
-    total_epochs = run_cfg.epochs_per_layer * len(layers_to_unlearn)
+
+    if run_cfg.deep_layer_step_scale > 1.0:
+        phase_steps_list = []
+        for layer in layers_to_unlearn:
+            depth_ratio = (layers_to_unlearn[0] - layer) / max(layers_to_unlearn[0], 1)
+            scale = 1.0 + (run_cfg.deep_layer_step_scale - 1.0) * depth_ratio
+            phase_steps_list.append(max(1, int(base_steps_per_phase * scale)))
+    else:
+        phase_steps_list = [base_steps_per_phase] * len(layers_to_unlearn)
+
+    total_training_calls = sum(phase_steps_list)
+    steps_per_epoch = len(train_dataset) // (world_size * run_cfg.pdbs)
+    total_epochs = math.ceil(total_training_calls / steps_per_epoch)
 
     use_muon = run_cfg.optimizer == "muon"
 
     print(
         f"Running with {world_size} GPUs. Per device batch: {run_cfg.pdbs}. "
         f"Grad Acc steps: {grad_acc_steps}. "
-        f"Steps per phase: {steps_per_phase}. Total epochs: {total_epochs}."
+        f"Steps per phase: {phase_steps_list}. Total epochs: {total_epochs}."
     )
 
     training_args = TrainingArguments(
@@ -575,7 +588,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         layers_to_unlearn=layers_to_unlearn,
         frozen_model=frozen_model,
-        steps_per_phase=steps_per_phase,
+        steps_per_phase=phase_steps_list,
     )
 
     model.train()

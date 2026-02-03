@@ -97,10 +97,12 @@ Same setup as above but using MuonAdamW optimizer (Muon for 2D hidden matrices, 
 | 5 | 31→11 (step 4) | 14 | 1 | 1e-3 | 768 | ~6.8 | 1.04 | 0.2707 | 0.4160 | Job 2113525 |
 | 6 | 31→11 (step 4) | 5 | 2 | 2e-4 | 768 | ~5.9 | 1.07 | 0.3007 | 0.4368 | Job 2113528 |
 | 7 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | ~6.8 | 1.04 | 0.2707 | 0.4160 | Job 2113529 |
-| 8 | 31→11 (step 4) | 5 | 16 | 0.02 | 3072 | | | | | Job 2113545, epochs_per_layer=4 |
-| 9 | 31→11 (step 4) | 5 | 20 | 0.02 | 3072 | | | | | Job 2113546, epochs_per_layer=4 |
-| 10 | 31→11 (step 4) | 5 | 30 | 0.02 | 3072 | | | | | Job 2113547, epochs_per_layer=4 |
-| 11 | 31→11 (step 4) | 5 | 40 | 0.02 | 3072 | | | | | Job 2113548, epochs_per_layer=4 |
+| 8 | 31→11 (step 4) | 5 | 16 | 0.02 | 3072 | ~1.68 | ~1.08 | 0.3813 | 0.4457 | Job 2113545, epochs_per_layer=4 |
+| 9 | 31→11 (step 4) | 5 | 20 | 0.02 | 3072 | ~1.84 | ~1.19 | 0.4032 | 0.4451 | Job 2113546, epochs_per_layer=4 |
+| 10 | 31→11 (step 4) | 5 | 30 | 0.02 | 3072 | ~1.87 | ~1.72 | 0.4401 | 0.4484 | Job 2113547, epochs_per_layer=4 |
+| 11 | 31→11 (step 4) | 5 | 40 | 0.02 | 3072 | ~1.89 | ~1.84 | 0.4470 | 0.4492 | Job 2113548, epochs_per_layer=4 |
+| 12 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.7 | ~1.04 | **0.2903** | **0.4467** | Job 2125986, +regex keyword_mask forget loss |
+| 13 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | | | | | +activation_mask (layer 16, threshold 0.2) |
 
 ### Max Entropy KL Forget Loss, KL Retain Loss (Naive SFT, breaks differential unlearning)
 
@@ -247,14 +249,16 @@ Deeper layers saturate more slowly. For one early run:
 | - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | - | 768 | 1.70 | 1.87 | 0.3986 | 0.4519 | max_entropy_kl + nll_retain (reference) |
 | 47 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.39 | 0.54 | 0.4113 | 0.4416 | nll_retain, Job 2113196, forget_loss saturates to 0 by ~step 8 each phase |
-| 48 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | | | | | nll_retain, dpo_fullmodel (per-seq NPO), Job 2114350 |
+| 48 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.64 | 0.52 | 0.4159 | 0.4412 | nll_retain, dpo_fullmodel (per-seq NPO), Job 2114350 |
 | 49 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.45 | 0.70 | 0.4136 | 0.4442 | nll_retain, per-token NPO, Job 2114673 |
 | 50 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.45 | 0.68 | 0.4147 | 0.4412 | nll_retain, per-token NPO, forget_layer_scale=5, Job 2116051 |
 | 51 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.46 | 0.68 | 0.4067 | 0.4397 | nll_retain, per-token NPO, forget_layer_scale=10, Job 2115652 |
 | 52 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.58 | 0.67 | 0.4009 | 0.4368 | nll_retain, per-token NPO, forget_layer_scale=50, Job 2115645 |
-| 53 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | | | | | nll_retain, per-token NPO, forget_layer_scale=200, Job 2125918 |
-| 54 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | | | | | nll_retain, per-token NPO, forget_layer_scale=500, Job 2125919 |
-| 55 | 31→11 (step 4) | 5 | 200 | 2e-4 | 50.0 | 768 | | | | | nll_retain, per-token NPO, dpo_beta=50, forget_layer_scale=50, Job 2125920 |
+| 53 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 2.06 | 0.67 | 0.3986 | 0.4326 | nll_retain, per-token NPO, forget_layer_scale=200, Job 2125918 |
+| 54 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.52 | 0.68 | 0.3986 | 0.4298 | nll_retain, per-token NPO, forget_layer_scale=500, Job 2125919 |
+| 55 | 31→11 (step 4) | 5 | 200 | 2e-4 | 50.0 | 768 | 1.47 | 0.91 | 0.4101 | 0.4434 | nll_retain, per-token NPO, dpo_beta=50, forget_layer_scale=50, Job 2125920 |
+| 56 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | ~1509 | 1.36 | 0.02 | 0.3998 | 0.4419 | nll_retain, per-token NPO, fls=50, deep_layer_step_scale=4, Job 2125951 |
+| 57 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | ~2500 | 0.85 | 0.004 | 0.3952 | 0.4422 | nll_retain, per-token NPO, fls=50, deep_layer_step_scale=8, Job 2125953 |
 
 ## Default Hyperparameters
 
