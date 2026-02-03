@@ -38,7 +38,8 @@ Retain L2 computed at fixed layers [5,10,15,20,25,30], not at the current target
 | 8 | 28→16 (step 4) | 50 | 5 | 128 | 0.3076 | 0.4488 | Hook migration v2 (all-layer retain), Job 2088695 |
 | 9 | 28→16 (step 4) | 50 | 5 | 128 | 0.3191 | 0.4500 | +ultrachat |
 | 10 | 28→16 (step 4) | 50 | 5 | 128 | 0.2823 | 0.4303 | Replication of run 5, Job 2110179 |
-| 11 | 28→16 (step 4) | 50 | 2 | 128 | | | +ultrachat, Job 2110779 |
+| 11 | 28→16 (step 4) | 50 | 2 | 128 | 0.3088 | 0.4516 | +ultrachat, Job 2110779 |
+| 12 | 28→16 (step 4) | 70 | 2 | 128 | 0.3053 | 0.4518 | +ultrachat, Job 2113085 |
 
 ### KL Retain Loss (LoRA) - Worse Than L2 Norm Activation Retain
 
@@ -82,6 +83,25 @@ Retain L2 computed at the current target layer's output. Only the target layer's
 | 7 | 31→1 (step 2) | 1 | 2 | 2e-4 | 2048 | 0.14 | 2.00 | 0.3917 | 0.4447 | Job 2110786 |
 | 8 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | 5.53 | 1.61 | **0.2949** | **0.4199** | +ultrachat |
 
+### Max Entropy KL Forget Loss, L2 Retain Loss (SFT + Muon Optimizer)
+
+Same setup as above but using MuonAdamW optimizer (Muon for 2D hidden matrices, AdamW for embeddings/biases/norms). muon_lr=0.02, adam_lr=2e-4. +ultrachat.
+
+| Run | Layers | remove_coef | retain_coef | lr (muon) | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 1 | 31→11 (step 4) | 14 | 1 | 0.02 | 768 | ~6.8 | 1.04 | **0.2707** | **0.4160** | Job 2110810 |
+| 2 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.9 | 1.07 | **0.3007** | **0.4367** | Job 2110867 |
+| 3 | 31→11 (step 4) | 5 | 2 | 0.02 | 1536 | ~3.5 | 1.05 | 0.3479 | 0.4410 | Job 2113120, epochs_per_layer=2 |
+| 4 | 31→11 (step 4) | 5 | 2 | 1e-3 | 768 | ~5.9 | 1.07 | 0.3018 | 0.4368 | Job 2113524 |
+| 5 | 31→11 (step 4) | 14 | 1 | 1e-3 | 768 | ~6.8 | 1.04 | 0.2707 | 0.4160 | Job 2113525 |
+| 6 | 31→11 (step 4) | 5 | 2 | 2e-4 | 768 | ~5.9 | 1.07 | 0.3007 | 0.4368 | Job 2113528 |
+| 7 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | ~6.8 | 1.04 | 0.2707 | 0.4160 | Job 2113529 |
+| 8 | 31→11 (step 4) | 5 | 16 | 0.02 | 3072 | | | | | Job 2113545, epochs_per_layer=4 |
+| 9 | 31→11 (step 4) | 5 | 20 | 0.02 | 3072 | | | | | Job 2113546, epochs_per_layer=4 |
+| 10 | 31→11 (step 4) | 5 | 30 | 0.02 | 3072 | | | | | Job 2113547, epochs_per_layer=4 |
+| 11 | 31→11 (step 4) | 5 | 40 | 0.02 | 3072 | | | | | Job 2113548, epochs_per_layer=4 |
+
 ### Max Entropy KL Forget Loss, KL Retain Loss (Naive SFT, breaks differential unlearning)
 
 1024 examples, layers 31→8 (step 4), 2 nodes / 8 GPUs, pdbs=1, grad_accum=4, 128 steps/phase, 768 total steps.
@@ -117,12 +137,12 @@ All ablations use max entropy KL forget loss, KL retain loss (on final logits, g
 
 | Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
 |-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|-------|
-| 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 1.70 | 1.87 | **0.3986** | **0.4519** | nll_retain |
-| 39 | 31→1 (step 2) | 5 | 200 | 2e-4 | 2048 | 0.97 | 1.97 | **0.3825** | **0.4387** | nll_retain, full model, Job 2110137 |
-| 41 | 31→1 (step 2) | 10 | 200 | 2e-4 | 2048 | 1.00 | 2.00 | **0.3733** | **0.4239** | nll_retain, full model, Job 2110614 |
-| 42 | 31→1 (step 2) | 10 | 500 | 2e-4 | 2048 | 1.00 | 1.94 | **0.3859** | **0.4385** | nll_retain, full model, Job 2110615 |
-| 43 | 31→1 (step 2) | 5 | 500 | 2e-4 | 2048 | 1.01 | 1.94 | **0.4021** | **0.4410** | nll_retain, full model, Job 2110616 |
-| 44 | 31→1 (step 2) | 2 | 200 | 2e-4 | 2048 | 0.95 | 2.00 | **0.3975** | **0.4412** | nll_retain, full model, Job 2110617 |
+| 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 1.70 | 1.87 | **0.3986** | **0.4519** | |
+| 39 | 31→1 (step 2) | 5 | 200 | 2e-4 | 2048 | 0.97 | 1.97 | **0.3825** | **0.4387** | |
+| 41 | 31→1 (step 2) | 10 | 200 | 2e-4 | 2048 | 1.00 | 2.00 | **0.3733** | **0.4239** | |
+| 42 | 31→1 (step 2) | 10 | 500 | 2e-4 | 2048 | 1.00 | 1.94 | **0.3859** | **0.4385** | |
+| 43 | 31→1 (step 2) | 5 | 500 | 2e-4 | 2048 | 1.01 | 1.94 | **0.4021** | **0.4410** | |
+| 44 | 31→1 (step 2) | 2 | 200 | 2e-4 | 2048 | 0.95 | 2.00 | **0.3975** | **0.4412** | |
 
 ### Same-Sign Grads (Some Unlearning, Partial MMLU Degradation)
 
@@ -212,6 +232,29 @@ NPO loss on forget data routed through frozen remaining layers: -log sigmoid(-be
 | 24 | 31→11 (step 4) | 5 | 200 | 2e-4 | - | 768 | 186.70 | 1.96 | 0.3629 | 0.3821 | max_entropy_kl (reference) |
 | 45 | 31→11 (step 4) | 5 | 200 | 2e-4 | 0.1 | 768 | 5.40 | 0.69 | 0.4274 | 0.4523 | No effect |
 | 46 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 4.95 | 0.69 | 0.4309 | 0.4525 | No effect |
+
+### DPO-Style Forget Loss, NLL Retain Loss
+
+NPO forget through frozen remaining layers + NLL retain (standard NPO retain). Compared against Run 29 (max-entropy KL forget + NLL retain).
+
+Deeper layers saturate more slowly. For one early run:
+  - Layer 31: saturates by step 8
+  - Layer 15: saturates by step ~600 (12 gradient updates with signal)
+  - Layer 11: never saturated, still at ~0.5 at step 760
+
+| Run | Layers | remove_coef | retain_coef | lr | dpo_beta | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|--------|-------------|-------------|-----|----------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | - | 768 | 1.70 | 1.87 | 0.3986 | 0.4519 | max_entropy_kl + nll_retain (reference) |
+| 47 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.39 | 0.54 | 0.4113 | 0.4416 | nll_retain, Job 2113196, forget_loss saturates to 0 by ~step 8 each phase |
+| 48 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | | | | | nll_retain, dpo_fullmodel (per-seq NPO), Job 2114350 |
+| 49 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.45 | 0.70 | 0.4136 | 0.4442 | nll_retain, per-token NPO, Job 2114673 |
+| 50 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.45 | 0.68 | 0.4147 | 0.4412 | nll_retain, per-token NPO, forget_layer_scale=5, Job 2116051 |
+| 51 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.46 | 0.68 | 0.4067 | 0.4397 | nll_retain, per-token NPO, forget_layer_scale=10, Job 2115652 |
+| 52 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 1.58 | 0.67 | 0.4009 | 0.4368 | nll_retain, per-token NPO, forget_layer_scale=50, Job 2115645 |
+| 53 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | | | | | nll_retain, per-token NPO, forget_layer_scale=200, Job 2125918 |
+| 54 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | | | | | nll_retain, per-token NPO, forget_layer_scale=500, Job 2125919 |
+| 55 | 31→11 (step 4) | 5 | 200 | 2e-4 | 50.0 | 768 | | | | | nll_retain, per-token NPO, dpo_beta=50, forget_layer_scale=50, Job 2125920 |
 
 ## Default Hyperparameters
 

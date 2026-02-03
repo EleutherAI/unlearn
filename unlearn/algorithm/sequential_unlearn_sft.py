@@ -106,6 +106,13 @@ class SequentialSftTrainer(Trainer):
         else:
             retain_coeff = self.run_args.retain_coef * (0.25 + 0.75 * scheduled_coeff)
         forget_coeff = self.run_args.remove_coef * (1 - 0.25 * scheduled_coeff)
+
+        if self.run_args.forget_layer_scale > 1.0:
+            start_layer = self.layers_to_unlearn[0]
+            depth_ratio = (start_layer - target_layer) / max(start_layer, 1)
+            layer_scale = 1.0 + (self.run_args.forget_layer_scale - 1.0) * depth_ratio
+            forget_coeff *= layer_scale
+
         return phase_idx, target_layer, retain_coeff, forget_coeff
 
     def _compute_retain_loss(self, model, inputs, target_device):
@@ -226,10 +233,14 @@ class SequentialSftTrainer(Trainer):
                 )
 
             # Per-token log probs (shifted for next-token prediction)
-            shift_current = logits[:, :-1, :].float()
-            shift_ref = ref_logits[:, :-1, :].float()
             shift_labels = forget_input_ids[:, 1:].to(logits.device)
             shift_mask = forget_attention_mask[:, 1:].bool().to(logits.device)
+            total_tokens = shift_mask.sum().clamp(min=1)
+            beta = self.run_args.dpo_beta
+
+            # Loss 1: current hidden → frozen layers vs ref hidden → frozen layers
+            shift_current = logits[:, :-1, :].float()
+            shift_ref = ref_logits[:, :-1, :].float()
 
             current_lp = F.log_softmax(shift_current, dim=-1)
             ref_lp = F.log_softmax(shift_ref, dim=-1)
@@ -239,14 +250,15 @@ class SequentialSftTrainer(Trainer):
             ).squeeze(-1)
             ref_token_lp = ref_lp.gather(-1, shift_labels.unsqueeze(-1)).squeeze(-1)
 
-            # Per-token log ratio, averaged over non-padding tokens
-            token_log_ratios = (current_token_lp - ref_token_lp) * shift_mask
-            seq_lengths = shift_mask.sum(dim=-1).clamp(min=1)
-            avg_log_ratios = token_log_ratios.sum(dim=-1) / seq_lengths
+            if self.run_args.dpo_per_token:
+                per_token_npo = -F.logsigmoid(-beta * (current_token_lp - ref_token_lp))
+                loss = (per_token_npo * shift_mask).sum() / total_tokens
+            else:
+                seq_lengths = shift_mask.sum(dim=-1).clamp(min=1)
+                token_log_ratios = (current_token_lp - ref_token_lp) * shift_mask
+                avg_log_ratios = token_log_ratios.sum(dim=-1) / seq_lengths
+                loss = -F.logsigmoid(-beta * avg_log_ratios).mean()
 
-            # NPO: -log sigmoid(-beta * avg_log_ratio)
-            beta = self.run_args.dpo_beta
-            loss = -F.logsigmoid(-beta * avg_log_ratios).mean()
             return loss.to(target_device) + dummy_loss
 
         elif self.run_args.use_max_entropy_kl:
@@ -422,25 +434,21 @@ class SequentialSftTrainer(Trainer):
                 print(msg)
 
             if wandb.run is not None:
-                wandb.log(
-                    {
-                        "retain_loss": retain_loss.item(),
-                        "forget_loss": forget_loss.item(),
-                        "retain_grad_norm": retain_grad_norm,
-                        "forget_grad_norm": forget_grad_norm,
-                        "retain_coeff": retain_coeff,
-                        "forget_coeff": forget_coeff,
-                        "target_layer": target_layer,
-                        "phase": phase_idx,
-                        **(
-                            {"same_sign_pct": same_sign_pct}
-                            if same_sign_pct is not None
-                            else {}
-                        ),
-                        **({"l2sp_norm": l2sp_norm} if l2sp_norm > 0 else {}),
-                    },
-                    step=self.current_training_step,
-                )
+                log_dict = {
+                    "retain_loss": retain_loss.item(),
+                    "forget_loss": forget_loss.item(),
+                    "retain_grad_norm": retain_grad_norm,
+                    "forget_grad_norm": forget_grad_norm,
+                    "retain_coeff": retain_coeff,
+                    "forget_coeff": forget_coeff,
+                    "target_layer": target_layer,
+                    "phase": phase_idx,
+                }
+                if same_sign_pct is not None:
+                    log_dict["same_sign_pct"] = same_sign_pct
+                if l2sp_norm > 0:
+                    log_dict["l2sp_norm"] = l2sp_norm
+                wandb.log(log_dict, step=self.current_training_step)
 
         self.current_training_step += 1
         return (retain_coeff * retain_loss + forget_coeff * forget_loss).detach()
@@ -472,8 +480,11 @@ class SequentialSftUnlearnConfig:
     max_grad_norm: float = 1.0
     retain_loss_type: Literal["kl", "l2", "nll"] = "kl"
     use_dpo_forget: bool = False
+    dpo_per_token: bool = False
     dpo_beta: float = 0.1
+    forget_layer_scale: float = 1.0
     optimizer: Literal["muon", "adamw"] = "adamw"
+    muon_lr: float = 0.02
     muon_momentum: float = 0.95
     wandb_project: str = ""
 
