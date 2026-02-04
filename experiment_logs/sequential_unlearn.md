@@ -34,7 +34,6 @@ Retain L2 computed at fixed layers [5,10,15,20,25,30], not at the current target
 | 4 | 28→16 (step 4) | 40 | 5 | 128 | 0.2961 | 0.4410 | | | |
 | 5 | 28→16 (step 4) | 50 | 5 | 128 | **0.2684** | **0.4437** | 0.1355 | 1.30 | Random (~0.25) |
 | 6 | 28→16 (step 4) | 50 | 5 | 1280 | 0.2535 | 0.2540 | | | 10x examples, MMLU collapsed |
-| 7 | 28→16 (step 4) | 50 | 5 | 128 | 0.2535 | 0.2540 | | | Hook migration v1 (4-layer retain), Job 2088651 |
 | 8 | 28→16 (step 4) | 50 | 5 | 128 | 0.3076 | 0.4488 | | | Hook migration v2 (all-layer retain), Job 2088695 |
 | 9 | 28→16 (step 4) | 50 | 5 | 128 | 0.3191 | 0.4500 | | | +ultrachat |
 | 10 | 28→16 (step 4) | 50 | 5 | 128 | 0.2823 | 0.4303 | | | Replication of run 5, Job 2110179 |
@@ -112,11 +111,10 @@ Same setup as above but using MuonAdamW optimizer (Muon for 2D hidden matrices, 
 | 14 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.2 | ~1.03 | 0.3502 | 0.4457 | | | | Job 2126061, +sae_mask (11 WMDP latents, 0.92% tokens) |
 | 15 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.2 | ~1.03 | 0.3237 | 0.4415 | | | | Job 2126084, +sae_mask (1149 bio latents, 39% tokens) |
 | 16 | 31→0 (step 1) | 5 | 2 | 0.02 | 1024 | | ~1.02 | 0.3353 | 0.4443 | | | | Job 2133104, +regex keyword_mask, all layers, 32 steps/layer |
-| 16c | 31→0 (step 1) | 5 | 2 | 0.02 | 4096 | | | | | | | | Job 2133383, +regex keyword_mask, all layers, 128 steps/layer |
+| 16c | 31→0 (step 1) | 5 | 2 | 0.02 | 4096 | | ~1.02 | **0.2995** | **0.4469** | | | | Job 2133383, +regex keyword_mask, all layers, 128 steps/layer |
 | 16d | 31→0 (step 1) | 5 | 2 | 0.02 | 1024 | | ~1.03 | 0.3341 | 0.4166 | | | | Job 2133391, +regex keyword_mask, all layers, 32 steps/layer, +maintain_unlearned |
 | 17 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.3 | ~1.03 | 0.3525 | 0.4420 | | | | Job 2127358, +probe_mask (layer 11 linear, 10.5% tokens) |
 | 18 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.9 | ~1.03 | 0.3848 | 0.4499 | 0.1631 | 2999 | 18.81 | Job 2133026, +regex keyword_mask, +l2sp_coef=0.01 |
-
 ### Top-K Entropy Forget Loss (K=100), L2 Retain Loss (LoRA)
 
 Maximizes entropy over only the top-100 most likely tokens at each position (normalized by log(K) instead of log(V)).
@@ -127,19 +125,22 @@ Maximizes entropy over only the top-100 most likely tokens at each position (nor
 |-----|--------|-------------|-------------|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 1 | 28→16 (step 4) | 50 | 5 | 128 | ~2.74 | ~1.00 | **0.2857** | **0.4499** | Job 2133393 |
-| 2 | 31→0 (step 1) | 50 | 5 | 1024 | | | | | All layers, 32 steps/layer |
+| 2 | 31→0 (step 1) | 50 | 5 | 1024 | | ~1.00 | 0.2431 | 0.2459 | Job 2133442, all layers, 32 steps/layer, MMLU collapsed |
+| 3 | 31→0 (step 1) | 50 | 5 | 1024 | ~9.5 | ~1.75 | 0.3687 | 0.4423 | Job 2133540, all layers, 32 steps/layer, +freeze_non_target |
+| 4 | 31→0 (step 1) | 200 | 5 | 1024 | | | | | All layers, 32 steps/layer, +freeze_non_target |
 
 ### Top-K Entropy Forget Loss, L2 Retain Loss (SFT + Muon + Keyword Mask)
 
 1024 examples, layers 31→11 (step 4), 2 nodes / 8 GPUs, pdbs=1, grad_accum=4, 128 steps/phase, 768 total steps. +regex keyword_mask, +ultrachat.
 
-| Run | K | Layers | remove_coef | retain_coef | lr (muon) | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
-|-----|---|--------|-------------|-------------|-----------|-------|-------------|-------------|-----------------|------|-------|
-| - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 1 | 100 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~2.5 | ~1.01 | **0.3260** | **0.4380** | Job 2133394 |
-| 2 | 10 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | | | | | Job 2133435 |
-| 3 | 50 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | | | | | Job 2133436 |
-| 4 | 200 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | | | | | Job 2133437 |
+| Run | K | Layers | remove_coef | retain_coef | lr (muon) | Steps | Batch | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|---|--------|-------------|-------------|-----------|-------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 1 | 100 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | 32 | ~2.5 | ~1.01 | **0.3260** | **0.4380** | Job 2133394 |
+| 2 | 10 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | 32 | ~5.88 | ~1.01 | **0.3122** | **0.4435** | Job 2133435 |
+| 3 | 50 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | 32 | 4.77 | 1.01 | 0.3433 | 0.4379 | Job 2133436 |
+| 4 | 200 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | 32 | 4.78 | 1.01 | 0.3353 | 0.4390 | Job 2133437 |
+| 5 | 100 | 31→11 (step 4) | 5 | 2 | 0.02 | 3072 | 32 | | | | | Job 2133563, 4096 examples |
 
 ### Max Entropy KL Forget Loss, KL Retain Loss (Naive SFT, breaks differential unlearning)
 
@@ -172,7 +173,7 @@ Retain KL computed on final logits. Gradients flow through all layers but only t
 
 All ablations use max entropy KL forget loss, KL retain loss (on final logits, gradients flow through all layers but only target layer's grads kept), full SFT with same-sign gradient filtering and layer-wise gradient freezing. 1024 examples, layers 31→8 (step 4), 2 nodes / 8 GPUs, pdbs=1, grad_accum=4, 128 steps/phase, 768 total steps.
 
-### Max Entropy KL Forget Loss, NLL Retain Loss (Potential unlearning, good retention)
+### Max Entropy KL Forget Loss, NLL Retain Loss (Weak unlearning, good retention)
 
 | Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | correct_prob | Notes |
 |-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|--------------|-------|
@@ -196,7 +197,7 @@ Separate backward passes for retain and forget losses. Only update parameter ele
 | 4 | 31→11 (step 4) | 5 | 2000 | 2e-4 | 768 | 126.40 | 1.56 | 0.2938 | 0.3782 | |
 | 29 | 31→11 (step 4) | 5 | 200 | 2e-4 | 768 | 148.45 | 1.54 | 0.2938 | 0.3793 | max_grad_norm=0.3 |
 
-### Same-Sign + Asymmetric Filter (Little Unlearning)
+### Same-Sign + Asymmetric Filter (Little Unlearning, needs more tuning)
 
 Forget grads zeroed where they disagree with retain; all retain grads kept.
 
@@ -206,7 +207,7 @@ Forget grads zeroed where they disagree with retain; all retain grads kept.
 | 5 | 31→11 (step 4) | 5 | 5 | 2e-4 | 768 | 9.47 | 1.97 | 0.4240 | | |
 | 12 | 31→11 (step 4) | 5 | 2000 | 2e-4 | 768 | 10.93 | 1.97 | 0.4274 | | |
 
-### Same-Sign + Asymmetric Filter + Ramp Retain from Zero (Partial MMLU Degradation)
+### Same-Sign + Asymmetric Filter + Ramp Retain from Zero (MMLU Degradation)
 
 Retain coeff ramps from 0 (instead of 0.25x) over training.
 
@@ -218,7 +219,7 @@ Retain coeff ramps from 0 (instead of 0.25x) over training.
 | 15 | 31→11 (step 4) | 5 | 1 | 2e-3 | 768 | 191.64 | 1.50 | 0.3560 | 0.3947 | |
 | 16 | 31→11 (step 4) | 5 | 5 | 1e-3 | 768 | | | 0.4528 | | |
 
-### Same-Sign + Asymmetric Filter + Ramp Retain from Zero + L2-SP (Partial Unlearning + Good MMLU Retention)
+### Same-Sign + Asymmetric Filter + Ramp Retain from Zero + L2-SP (Weak Unlearning + Good MMLU Retention)
 
 L2-SP: regularize weights toward pretrained initialization (λ||w − w₀||²) computed via forward hook on the target layer.
 
@@ -230,7 +231,7 @@ L2-SP: regularize weights toward pretrained initialization (λ||w − w₀||²) 
 | 19 | 31→11 (step 4) | 5 | 1 | 1e-3 | 1.0 | 768 | 18.49 | 1.96 | 0.4332 | 0.4517 | | | | |
 | 20 | 31→11 (step 4) | 5 | 1 | 2e-3 | 0.1 | 768 | 106.20 | 1.75 | 0.4009 | 0.4270 | | | | |
 
-### Same-Sign + Asymmetric Filter + Ramp Retain from Zero + L2-SP + UltraChat
+### Same-Sign + Asymmetric Filter + Ramp Retain from Zero + L2-SP + UltraChat (Undertuned, no change)
 
 Same as above with UltraChat mixed into retain data.
 
@@ -261,7 +262,7 @@ L2-SP regularization without gradient filtering. l2sp_coef=0.01.
 | 38 | 31→11 (step 4) | 2 | 30 | 1e-3 | 0.01 | 768 | 930.06 | 1.95 | 0.4274 | 0.4588 | No effect |
 | 40 | 31→11 (step 4) | 2 | 30 | 1e-3 | 0.01 | 768 | 930.06 | 1.95 | 0.4274 | 0.4588 | +ultrachat, no effect. Job 2110091 |
 
-### DPO-Style Forget Loss, KL Retain Loss
+### DPO-Style Forget Loss, KL Retain Loss (Undertuned)
 
 NPO loss on forget data routed through frozen remaining layers: -log sigmoid(-beta * (log_prob_current - log_prob_ref)). Compared against Run 24 (max-entropy KL forget, same config).
 
@@ -272,7 +273,7 @@ NPO loss on forget data routed through frozen remaining layers: -log sigmoid(-be
 | 45 | 31→11 (step 4) | 5 | 200 | 2e-4 | 0.1 | 768 | 5.40 | 0.69 | 0.4274 | 0.4523 | No effect |
 | 46 | 31→11 (step 4) | 5 | 200 | 2e-4 | 10.0 | 768 | 4.95 | 0.69 | 0.4309 | 0.4525 | No effect |
 
-### DPO-Style Forget Loss, NLL Retain Loss
+### DPO-Style Forget Loss, NLL Retain Loss (Weak Unlearning)
 
 NPO forget through frozen remaining layers + NLL retain (standard NPO retain). Compared against Run 29 (max-entropy KL forget + NLL retain).
 

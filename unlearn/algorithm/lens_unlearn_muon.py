@@ -63,8 +63,7 @@ class UnlearningTrainer(Trainer):
         if self.use_muon:
             self.optimizer = MuonAdamW(
                 self.model.parameters(),
-                muon_lr=self.run_args.muon_lr,
-                adam_lr=self.run_args.adam_lr,
+                lr=self.args.learning_rate,
                 muon_momentum=self.run_args.muon_momentum,
                 weight_decay=self.args.weight_decay,
             )
@@ -309,8 +308,7 @@ class LensMuonUnlearnConfig:
     retain_coef: float = 0.0
     remove_coef: float = 5.0
     retain_loss_type: Literal["l2", "kl"] = "kl"
-    muon_lr: float = 0.02
-    adam_lr: float = 3e-4
+    lr: float = 2e-4
     muon_momentum: float = 0.95
     layers: list[int] = field(default_factory=lambda: [5, 10, 15, 20, 25, 30])
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"
@@ -387,14 +385,9 @@ if __name__ == "__main__":
 
     use_muon = run_cfg.optimizer == "muon"
     if use_muon:
-        print("Using full SFT with Muon optimizer")
-        print(
-            f"Muon LR: {run_cfg.muon_lr}, Adam LR: {run_cfg.adam_lr}, "
-            f"Momentum: {run_cfg.muon_momentum}"
-        )
+        print(f"Using full SFT with Muon optimizer (lr={run_cfg.lr})")
     else:
-        print("Using full SFT with AdamW optimizer")
-        print(f"AdamW LR: {run_cfg.adam_lr}")
+        print(f"Using full SFT with AdamW optimizer (lr={run_cfg.lr})")
 
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
 
@@ -427,10 +420,9 @@ if __name__ == "__main__":
         f"Grad Acc steps: {grad_acc_steps}."
     )
 
-    lr = run_cfg.muon_lr if use_muon else run_cfg.adam_lr
     training_args = TrainingArguments(
         output_dir="./results",
-        learning_rate=lr,
+        learning_rate=run_cfg.lr,
         gradient_accumulation_steps=grad_acc_steps,
         per_device_train_batch_size=run_cfg.pdbs,
         per_device_eval_batch_size=run_cfg.pdbs,

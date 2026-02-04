@@ -14,6 +14,10 @@ Unlearning hyperparameters don't transfer between number of training steps. Only
 
 Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the markdown. Only record the eval results.
 
+## Training mode
+
+Default to SFT (full parameter training) unless LoRA is specifically requested.
+
 ## Learning rates
 
 When training a LoRA the most common successful value is lr=1e-3. When doing SFT it's around 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug.

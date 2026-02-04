@@ -32,7 +32,7 @@ from lm_eval import evaluator
 from lm_eval.models.huggingface import HFLM
 from lm_eval.tasks import TaskManager
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 MAX_LENGTH = 2048
 
@@ -50,31 +50,44 @@ class TamperAttackConfig:
     lr: float = 2e-5
     batch_size: int = 1
     grad_accumulation: int = 16
+    eval_cloze_prob: bool = False
 
 
 class WMDPEvalCallback(TrainerCallback):
     """Callback to evaluate WMDP accuracy during training and save results."""
 
-    def __init__(self, model, eval_every: int, output_path: Path):
+    def __init__(
+        self, model, eval_every: int, output_path: Path, eval_cloze_prob: bool = False
+    ):
         self.model = model
         self.eval_every = eval_every
         self.output_path = output_path
+        self.eval_cloze_prob = eval_cloze_prob
         self.eval_results = []
 
     def on_step_begin(self, args, state, control, **kwargs):
         if state.global_step % self.eval_every == 0:
-            wmdp_acc = self._evaluate_wmdp()
+            eval_out = self._evaluate_wmdp()
             result = {
                 "step": state.global_step,
-                "wmdp_bio_acc": wmdp_acc,
+                "wmdp_bio_acc": eval_out["wmdp_bio_acc"],
                 "timestamp": datetime.now().isoformat(),
             }
+            if "cloze_correct_prob" in eval_out:
+                result["cloze_correct_prob"] = eval_out["cloze_correct_prob"]
             self.eval_results.append(result)
-            print(f"Step {state.global_step}: WMDP Bio Acc = {wmdp_acc:.4f}")
+            msg = (
+                f"Step {state.global_step}: WMDP Bio Acc = "
+                f"{eval_out['wmdp_bio_acc']:.4f}"
+            )
+            if "cloze_correct_prob" in eval_out:
+                msg += f", Cloze Correct Prob = {eval_out['cloze_correct_prob']:.4f}"
+            print(msg)
             self._save_results()
 
-    def _evaluate_wmdp(self) -> float:
+    def _evaluate_wmdp(self) -> dict:
         self.model.eval()
+        out = {}
         with torch.no_grad():
             hflm_model = HFLM(self.model)
             task_manager = TaskManager(
@@ -89,12 +102,27 @@ class WMDPEvalCallback(TrainerCallback):
                 num_fewshot=0,
                 task_manager=task_manager,
             )
-            acc = eval_results["results"]["wmdp_bio_robust"]["acc,none"]
-            del hflm_model
+            out["wmdp_bio_acc"] = eval_results["results"]["wmdp_bio_robust"]["acc,none"]
             del eval_results
+            if self.eval_cloze_prob:
+                cloze_results = evaluator.simple_evaluate(
+                    model=hflm_model,
+                    tasks=["wmdp_bio_cloze_correct_prob"],
+                    device=self.model.device,
+                    verbosity="ERROR",
+                    num_fewshot=0,
+                    task_manager=task_manager,
+                )
+                out["cloze_correct_prob"] = cloze_results["results"][
+                    "wmdp_bio_cloze_correct_prob"
+                ]["correct_prob,none"]
+                del cloze_results
+            del hflm_model
+            del task_manager
             gc.collect()
+            torch.cuda.empty_cache()
         self.model.train()
-        return acc
+        return out
 
     def _save_results(self):
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -240,6 +268,74 @@ def plot_results(
     return output_path
 
 
+def plot_cloze_results(
+    results_path: Path,
+    output_path: Optional[Path] = None,
+    title: Optional[str] = None,
+    baseline: float = 0.2008,
+    mean_stable_rank: Optional[float] = None,
+):
+    with open(results_path) as f:
+        results = json.load(f)
+
+    results = [r for r in results if "cloze_correct_prob" in r]
+    if not results:
+        print(f"No cloze_correct_prob data found in {results_path}")
+        return None
+
+    steps = [r["step"] for r in results]
+    probs = [r["cloze_correct_prob"] * 100 for r in results]
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(
+        steps,
+        probs,
+        "b-o",
+        linewidth=2,
+        markersize=6,
+        label="Cloze Correct Probability",
+    )
+    plt.axhline(
+        y=baseline * 100,
+        color="r",
+        linestyle="--",
+        linewidth=2,
+        label=f"Original Model: {baseline*100:.1f}%",
+    )
+    plt.axhline(y=25, color="g", linestyle=":", linewidth=2, label="Random Chance: 25%")
+    plt.xlabel("Training Step", fontsize=12)
+    plt.ylabel("Cloze Correct Probability (%)", fontsize=12)
+    if title is None:
+        title = "Tamper Attack: Cloze Correct Prob Recovery Over Training"
+    if mean_stable_rank is not None:
+        title += f"\nmean stable rank = {mean_stable_rank:.2f}"
+    plt.title(title, fontsize=13)
+    plt.legend(loc="lower right", fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.ylim(0, 50)
+
+    if len(probs) > 1:
+        recovery = probs[-1] - probs[0]
+        textstr = f"Recovery: +{recovery:.1f}% in {steps[-1]} steps"
+        props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
+        plt.text(
+            0.02,
+            0.98,
+            textstr,
+            transform=plt.gca().transAxes,
+            fontsize=11,
+            verticalalignment="top",
+            bbox=props,
+        )
+
+    if output_path is None:
+        output_path = results_path.with_name(results_path.stem + "_cloze" + ".png")
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Cloze plot saved to {output_path}")
+    return output_path
+
+
 def run_tamper_attack(config: TamperAttackConfig):
     print(f"Running tamper attack on: {config.model_name}")
     print(f"Config: {config}")
@@ -254,7 +350,9 @@ def run_tamper_attack(config: TamperAttackConfig):
     dataset = prepare_dataset(config, tokenizer)
     print(f"Training dataset size: {len(dataset)}")
 
-    callback = WMDPEvalCallback(model, config.eval_every, results_path)
+    callback = WMDPEvalCallback(
+        model, config.eval_every, results_path, eval_cloze_prob=config.eval_cloze_prob
+    )
 
     training_args = TrainingArguments(
         output_dir=str(output_dir / "checkpoints"),
@@ -285,25 +383,32 @@ def run_tamper_attack(config: TamperAttackConfig):
     model.train()
     trainer.train()
 
-    final_acc = callback._evaluate_wmdp()
-    callback.eval_results.append(
-        {
-            "step": trainer.state.global_step,
-            "wmdp_bio_acc": final_acc,
-            "timestamp": datetime.now().isoformat(),
-            "final": True,
-        }
-    )
+    final_out = callback._evaluate_wmdp()
+    final_result = {
+        "step": trainer.state.global_step,
+        "wmdp_bio_acc": final_out["wmdp_bio_acc"],
+        "timestamp": datetime.now().isoformat(),
+        "final": True,
+    }
+    if "cloze_correct_prob" in final_out:
+        final_result["cloze_correct_prob"] = final_out["cloze_correct_prob"]
+    callback.eval_results.append(final_result)
     callback._save_results()
 
     print("\n" + "=" * 50)
     print("WMDP Bio Accuracy Over Training:")
     print("=" * 50)
     for r in callback.eval_results:
-        print(f"Step {r['step']:4d}: {r['wmdp_bio_acc']*100:.2f}%")
+        line = f"Step {r['step']:4d}: {r['wmdp_bio_acc']*100:.2f}%"
+        if "cloze_correct_prob" in r:
+            line += f"  Cloze: {r['cloze_correct_prob']*100:.2f}%"
+        print(line)
     print("=" * 50)
 
     plot_path = plot_results(results_path)
+
+    if config.eval_cloze_prob:
+        plot_cloze_results(results_path)
 
     return results_path, plot_path
 
@@ -360,6 +465,16 @@ def parse_args():
         default=None,
         help="Plot title (includes HP/algorithm info)",
     )
+    parser.add_argument(
+        "--eval_cloze_prob",
+        action="store_true",
+        help="Also evaluate cloze correct probability during training",
+    )
+    parser.add_argument(
+        "--plot_cloze",
+        action="store_true",
+        help="In plot_only mode, plot cloze data instead of accuracy",
+    )
     return parser.parse_args()
 
 
@@ -367,7 +482,10 @@ if __name__ == "__main__":
     args = parse_args()
 
     if args.plot_only:
-        plot_results(Path(args.plot_only), title=args.title)
+        if args.plot_cloze:
+            plot_cloze_results(Path(args.plot_only), title=args.title)
+        else:
+            plot_results(Path(args.plot_only), title=args.title)
     else:
         assert torch.cuda.is_available(), "CUDA is not available"
 
@@ -378,6 +496,7 @@ if __name__ == "__main__":
             epochs=args.epochs,
             eval_every=args.eval_every,
             lr=args.lr,
+            eval_cloze_prob=args.eval_cloze_prob,
         )
 
         results_path, plot_path = run_tamper_attack(config)

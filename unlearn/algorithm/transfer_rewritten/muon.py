@@ -11,15 +11,12 @@ class MuonAdamW(torch.optim.Optimizer):
     def __init__(
         self,
         params,
-        muon_lr=0.02,
-        adam_lr=3e-4,
+        lr=1e-3,
         muon_momentum=0.95,
         adam_betas=(0.9, 0.95),
         adam_eps=1e-8,
         weight_decay=0.01,
     ):
-
-        # 1. Split parameters into Muon (2D matrices) and AdamW (others) groups
         muon_params = []
         adam_params = []
 
@@ -27,19 +24,17 @@ class MuonAdamW(torch.optim.Optimizer):
             if not p.requires_grad:
                 continue
 
-            # Exclude bias and huge embeddings/heads
-            if p.ndim >= 2 and p.size(0) < 10000:
+            if p.ndim >= 2 and p.size(0) < 50000:
                 muon_params.append(p)
             else:
                 adam_params.append(p)
 
-        # 2. Initialize internal optimizers
         self.optimizers = []
 
         if muon_params:
             self.muon = Muon(
                 muon_params,
-                lr=muon_lr,
+                lr=lr,
                 momentum=muon_momentum,
                 weight_decay=weight_decay,
                 adjust_lr_fn="match_rms_adamw",
@@ -49,7 +44,7 @@ class MuonAdamW(torch.optim.Optimizer):
         if adam_params:
             self.adam = AdamW(
                 adam_params,
-                lr=adam_lr,
+                lr=lr,
                 betas=adam_betas,
                 eps=adam_eps,
                 weight_decay=weight_decay,

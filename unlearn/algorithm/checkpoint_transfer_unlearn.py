@@ -26,6 +26,7 @@ from unlearn.algorithm.online_affine_fitter import (
 )
 from unlearn.utils.hook import ActivationCapture, resolve_layer_names
 from unlearn.utils.keyword_masks import apply_keyword_masks
+from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
@@ -481,6 +482,16 @@ class RRTrainer(UnlearningTrainer):
         return (loss,) if return_outputs else loss
 
 
+class MuonRRTrainer(RRTrainer):
+    def create_optimizer(self):
+        self.optimizer = MuonAdamW(
+            self.model.parameters(),
+            lr=self.args.learning_rate,
+            weight_decay=self.args.weight_decay,
+        )
+        return self.optimizer
+
+
 @dataclass
 class CheckpointTransferConfig:
     num_train_examples: int = 1024
@@ -517,6 +528,7 @@ class CheckpointTransferConfig:
     lr_warmup: bool = False
     global_batch_size: int = 32
     hidden_dim: int = 4096
+    optimizer: Literal["adamw", "muon"] = "adamw"
 
 
 if __name__ == "__main__":
@@ -687,22 +699,32 @@ if __name__ == "__main__":
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        fp16=True,
+        bf16=True,
         save_strategy="no",
-        ddp_find_unused_parameters=False,
         warmup_steps=10 if run_cfg.lr_warmup else 0,
+        fsdp="full_shard auto_wrap",
+        fsdp_config={
+            "fsdp_version": 2,
+            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+            "activation_checkpointing": True,
+            "state_dict_type": "FULL_STATE_DICT",
+        },
     )
 
-    trainer = RRTrainer(
-        run_cfg,
-        model,
-        training_args,
-        train_dataset,
-        tokenizer,
-        run_cfg.layers,
+    TrainerClass = MuonRRTrainer if run_cfg.optimizer == "muon" else RRTrainer
+    trainer_kwargs = dict(
+        run_args=run_cfg,
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        tokenizer=tokenizer,
+        lora_target_layers=run_cfg.layers,
         checkpoint_model=checkpoint_model,
         affine_transforms=affine_transforms,
     )
+    if run_cfg.optimizer == "muon":
+        print(f"Using Muon optimizer (lr={run_cfg.lr})")
+    trainer = TrainerClass(**trainer_kwargs)
 
     model.train()
     trainer.train()

@@ -529,7 +529,6 @@ class SequentialSftUnlearnConfig:
     forget_layer_scale: float = 1.0
     deep_layer_step_scale: float = 1.0
     optimizer: Literal["muon", "adamw"] = "adamw"
-    muon_lr: float = 0.02
     muon_momentum: float = 0.95
     wandb_project: str = ""
     blocklist_path: str = ""
@@ -636,6 +635,13 @@ if __name__ == "__main__":
         max_grad_norm=run_cfg.max_grad_norm,
         save_strategy="no",
         report_to="none",
+        fsdp="full_shard auto_wrap",
+        fsdp_config={
+            "fsdp_version": 2,
+            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+            "activation_checkpointing": run_cfg.gradient_checkpointing,
+            "state_dict_type": "FULL_STATE_DICT",
+        },
     )
 
     trainer = SequentialSftTrainer(

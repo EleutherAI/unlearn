@@ -74,9 +74,9 @@ NUM_GPUS=4
 SAVE_NAME="lens_ret${RETAIN_COEF}_rm${REMOVE_COEF}_lr${LR}"
 MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${SAVE_NAME}"
 
-# Training with FSDP
-FSDP_CONFIG="$REPO_ROOT/unlearn/scripts/fsdp_config.yaml"
-CMD="accelerate launch --config_file=$FSDP_CONFIG -m unlearn.algorithm.lens_unlearn_sft \
+# Training with FSDP2
+CMD="torchrun --nproc_per_node=$NUM_GPUS \
+    -m unlearn.algorithm.lens_unlearn_sft \
     --lens_path=$LENS_DIR \
     --num_train_examples=$NUM_TRAIN_EXAMPLES \
     --remove_coef=$REMOVE_COEF \

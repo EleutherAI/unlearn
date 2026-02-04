@@ -80,13 +80,27 @@ sbatch file:
   conda activate <env_name>
   module load cuda/12.6
 
-  python unlearn/scripts/run_tamper_attack_with_plot.py \
-      --model_name=models/EleutherAI/deep-ignorance-unfiltered_rm30_orth100_steps256 \
-      --output_dir=runs/tamper_deep-ignorance-unfiltered_rm30_orth100_steps256 \
-      --num_train_examples=64 \
+  python -m unlearn.scripts.run_tamper_attack_with_plot \
+      --model_name=<model_path> \
+      --output_dir=runs/<tamper_output_dir> \
+      --num_train_examples=512 \
       --epochs=1 \
-      --eval_every=5 \
+      --eval_every=10 \
       --lr=2e-5
+```
+
+Regenerate a plot with HP annotations from existing results:
+
+```bash
+python -m unlearn.scripts.run_tamper_attack_with_plot \
+    --plot_only=runs/<tamper_output_dir>/tamper_results_<timestamp>.json \
+    --title="Tamper Attack: <method>\n<hp_summary>"
+```
+
+Copy the plot to experiment_logs:
+
+```bash
+cp runs/<tamper_output_dir>/tamper_results_<timestamp>.png experiment_logs/tampering_<name>.png
 ```
 
 ## Evaluate Manually

@@ -52,7 +52,7 @@ Affine transforms for global_step54832 available at `EleutherAI/affine-checkpoin
 | 2028225 | 2 | 50 | 2048 | 0.0375 | 0.7043 | 0.2995 | - | 0.3219 | 0.3818 |
 | 2038116 | 5 | 5 | 512 | 0.0062 | 0.7423 | 0.3744 | 0.3767 | 0.3590 | 0.4296 |
 | 2038117 | 5 | 20 | 512 | 0.0151 | 0.7385 | 0.3479 | - | 0.3479 | 0.4208 |
-| 2038118 | 20 | 5 | 512 | 0.0022 | 0.7441 | 0.3813 | 0.3848 | 0.3641 | 0.4375 |
+| 2038118 | 20 | 5 | 512 | 0.0022 | 0.7441 | 0.3813 | **0.3848** | 0.3641 | **0.4375** |
 
 ### Batch 1 Observations
 - All configurations produce similar WMDP (0.37-0.40) and MMLU (0.35-0.36)
@@ -99,26 +99,11 @@ Affine transforms for global_step54832 available at `EleutherAI/affine-checkpoin
 |--------|-------------|-------------|-------|----------------|---------|-------------|------|
 | Baseline | - | - | - | - | - | 42.97% | 45.10% |
 | 2042137 | 15 | 5 | 512 | 0.0027 | 0.7393 | 0.3894 | 0.4322 |
-| 2042650 | 10 | 5 | 512 | 0.0037 | 0.7392 | 0.3779 | 0.4312 |
+| 2042650 | 10 | 5 | 512 | 0.0037 | 0.7392 | **0.3779** | **0.4312** |
 | 2042651 | 5 | 5 | 512 | 0.0062 | 0.7397 | 0.3779 | 0.4302 |
 | 2042935 | 2 | 5 | 512 | 0.0125 | 0.7477 | 0.3698 | 0.4235 |
 | 2042936 | 1 | 5 | 512 | 0.0200 | 0.7386 | 0.3721 | 0.4202 |
-
-### Observations
-- **Minimum retain_coef for <1% MMLU drop: 5** (MMLU=0.4302, -0.73%)
-- retain_coef=2 drops MMLU by 1.4% (exceeds threshold)
-- retain_coef=1 drops MMLU by 1.73% (exceeds threshold)
-- WMDP stays relatively stable (0.37-0.39) across all retain_coef values
-- Lower retain_coef → higher retain_kl_loss (0.0027 at ret=15 → 0.0200 at ret=1)
-
-## Higher Remove Coef Exploration
-
-| Job ID | retain_coef | remove_coef | Steps | retain_kl_loss | cb_loss | WMDP Robust | MMLU |
-|--------|-------------|-------------|-------|----------------|---------|-------------|------|
-| Baseline | - | - | - | - | - | 42.97% | 45.10% |
 | 2043897 | 1 | 12 | 512 | - | - | 0.3468 | 0.4143 |
-
-**Observation:** Higher remove_coef (12 vs 5) with low retain_coef (1) achieves stronger unlearning (WMDP 0.3468 vs 0.3721) but at cost of 2.3% MMLU drop.
 
 ## Tampering Attack Results
 
@@ -126,8 +111,9 @@ Affine transforms for global_step54832 available at `EleutherAI/affine-checkpoin
 |-------|---------------|----------------|-------------------|-------|
 | ret5_rm5_512 | 37.7% | ~42% | ~43% | Full recovery by step 30 |
 | ret1_rm5_512 | 37.2% | 41.9% | 42.9% | Full recovery by step 10 |
+| LoRA ret5_rm5_r16 | 32.5% | 42.3% | 42.5% (step 70) | Full recovery by step 5 |
 
-**Conclusion:** Unlearning is easily reversed with small amount of finetuning on bio data. Both models recover to baseline (~43%) within 10-30 finetuning steps.
+**Conclusion:** Unlearning is easily reversed with small amount of finetuning on bio data. Both merged and LoRA models recover to baseline (~43%) within 5-30 finetuning steps. Cloze probability also recovers (0.19 → 0.24).
 
 ## KL Retain Loss Epoch Sweep
 
@@ -184,3 +170,21 @@ All models saved to `models/EleutherAI/deep-ignorance-unfiltered_kl_ret{X}_rm{Y}
 | Job ID | retain_coef | remove_coef | lora_r | Steps | retain_kl_loss | cb_loss | WMDP Robust | MMLU |
 |--------|-------------|-------------|--------|-------|----------------|---------|-------------|------|
 | Baseline | - | - | - | - | - | - | 42.97% | 45.10% |
+| 2133536 | 5 | 5 | 16 | 512 | 0.0074 | 0.8748 | 0.3272 | 0.3856 |
+| 2133607 | 2 | 2000 | 16 | 512 | 0.2584 | 0.8830 | 0.3203 | 0.2971 |
+| 2133686 | 2 | 5000 | 16 | 512 | 0.2646 | 0.8880 | 0.3122 | 0.2980 |
+| 2133700 | 0 | 2000 | 16 | 512 | 0.0000 | 0.8717 | 0.3134 | 0.2901 |
+| 2133707 | 0 | 2000 | 8 | 512 | 0.0000 | 0.8807 | 0.3018 | 0.2876 |
+| 2133708 | 0 | 2000 | 32 | 512 | 0.0000 | 0.8767 | 0.3145 | 0.2975 |
+| 2133741 | 0 | 2000 | 64 | 512 | 0.0000 | 0.8881 | 0.3191 | 0.3029 |
+| 2133712 | 0 | 2000 | full | 512 | 0.0000 | 31.1447 | 0.2650 | 0.2300 |
+| 2133747 | 0 | 2000 | 16 (muon) | 512 | cancelled | | | |
+| 2133758 | 0 | 2000 | full (muon*) | 512 | 0.0000 | diverged | 0.2350 | 0.2464 |
+
+\* Muon had a bug: `size(0) < 10000` threshold caused QKV (12288) and MLP up (16384) weights to route to AdamW. Only 64/388 trainable 2D params used Muon. cb_loss diverged (2.09 → 761K). Fixed threshold to `< 50000`.
+
+| Job ID | retain_coef | remove_coef | lora_r | Steps | retain_kl_loss | cb_loss | WMDP Robust | MMLU |
+|--------|-------------|-------------|--------|-------|----------------|---------|-------------|------|
+| 2133765 | 0 | 2000 | full (muon) | 512 | 0.0000 | diverged | - | - |
+| 2133784 | 0 | 2000 | full (muon) | 512 | 0.0000 | diverged | - | - |
+| 2133785 | 0 | 2000 | full (muon, lr=5e-4) | 512 | 0.0000 | 0.5941 | 0.2903 | 0.2849 |

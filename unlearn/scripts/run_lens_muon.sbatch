@@ -12,10 +12,9 @@ REPO_ROOT="/home/a6a/lucia.a6a/unlearn"
 
 # Arguments (environment variables or positional args)
 NUM_TRAIN_EXAMPLES=${NUM_TRAIN_EXAMPLES:-${1:-1024}}
-MUON_LR=${MUON_LR:-${2:-0.02}}
-ADAM_LR=${ADAM_LR:-${3:-3e-4}}
-REMOVE_COEF=${REMOVE_COEF:-${4:-5.0}}
-RETAIN_COEF=${RETAIN_COEF:-${5:-0.0}}
+LR=${LR:-${2:-0.02}}
+REMOVE_COEF=${REMOVE_COEF:-${3:-5.0}}
+RETAIN_COEF=${RETAIN_COEF:-${4:-0.0}}
 PDBS=${PDBS:-2}
 OPTIMIZER=${OPTIMIZER:-muon}
 EPOCHS=${EPOCHS:-1}
@@ -28,8 +27,7 @@ echo "Started: $(date)"
 echo "optimizer: $OPTIMIZER"
 echo "num_train_examples: $NUM_TRAIN_EXAMPLES"
 echo "epochs: $EPOCHS"
-echo "muon_lr: $MUON_LR"
-echo "adam_lr: $ADAM_LR"
+echo "lr: $LR"
 echo "remove_coef: $REMOVE_COEF"
 echo "retain_coef: $RETAIN_COEF"
 echo "============================================"
@@ -67,11 +65,7 @@ if [ ! -f "$LENS_DIR/params.pt" ]; then
     exit 1
 fi
 
-if [ "$OPTIMIZER" = "adamw" ]; then
-    SAVE_NAME="lens_ex${NUM_TRAIN_EXAMPLES}_adamw_lr${ADAM_LR}_rm${REMOVE_COEF}_rt${RETAIN_COEF}_ep${EPOCHS}"
-else
-    SAVE_NAME="lens_ex${NUM_TRAIN_EXAMPLES}_muon${MUON_LR}_rm${REMOVE_COEF}_rt${RETAIN_COEF}_ep${EPOCHS}"
-fi
+SAVE_NAME="lens_ex${NUM_TRAIN_EXAMPLES}_${OPTIMIZER}_lr${LR}_rm${REMOVE_COEF}_rt${RETAIN_COEF}_ep${EPOCHS}"
 MODEL_PATH="./models/EleutherAI/deep-ignorance-unfiltered_${SAVE_NAME}"
 
 NUM_GPUS=4
@@ -85,8 +79,7 @@ CMD="torchrun --nnodes=$SLURM_NNODES --nproc_per_node=$NUM_GPUS \
     --num_train_examples=$NUM_TRAIN_EXAMPLES \
     --remove_coef=$REMOVE_COEF \
     --retain_coef=$RETAIN_COEF \
-    --muon_lr=$MUON_LR \
-    --adam_lr=$ADAM_LR \
+    --lr=$LR \
     --pdbs=$PDBS \
     --epochs=$EPOCHS \
     --optimizer=$OPTIMIZER \
@@ -105,15 +98,15 @@ if [ $EXIT_CODE -ne 0 ]; then
 fi
 
 echo "===== WMDP Bio Eval ====="
-HF_DATASETS_TRUST_REMOTE_CODE=1 accelerate launch --num_processes 4 -m lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH,parallelize=True,trust_remote_code=True \
+HF_DATASETS_TRUST_REMOTE_CODE=1 torchrun --nproc_per_node=4 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL_PATH \
     --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
     --tasks wmdp_bio_robust \
     --batch_size auto
 
 echo "===== MMLU Eval ====="
-HF_DATASETS_TRUST_REMOTE_CODE=1 accelerate launch --num_processes 4 -m lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH,parallelize=True,trust_remote_code=True \
+HF_DATASETS_TRUST_REMOTE_CODE=1 torchrun --nproc_per_node=4 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL_PATH \
     --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
     --tasks mmlu \
     --batch_size auto

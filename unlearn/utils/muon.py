@@ -24,12 +24,11 @@ class MuonAdamW(torch.optim.Optimizer):
             if not p.requires_grad:
                 continue
 
-            if p.ndim >= 2 and p.size(0) < 10000:
+            if p.ndim >= 2 and p.size(0) < 50000:
                 muon_params.append(p)
             else:
                 adam_params.append(p)
 
-        self.optimizers = []
         self.optimizers = []
 
         if muon_params:

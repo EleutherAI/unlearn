@@ -140,10 +140,7 @@ def get_optimizer(model, optim_type: str, lr: float):
     if optim_type == "muon":
         return MuonAdamW(
             model.parameters(),
-            # Use the Moonshot Muon implementation that
-            # enables equal lrs
-            muon_lr=lr,
-            adam_lr=lr,
+            lr=lr,
         )
     elif optim_type == "adamw":
         return AdamW(model.parameters(), lr=lr)

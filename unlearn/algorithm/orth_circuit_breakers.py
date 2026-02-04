@@ -280,13 +280,22 @@ class OrthCircuitBreakerConfig:
     retain_coef: float = 2.0
     remove_coef: float = 23.0
     orth_coef: float = 10.0
-    lora_r: float = 16
+    lora_r: int = 16
     adv_lr: float = 2e-3
     attack_iters: int = 8
     lora: bool = True
     layers: list[int] = field(default_factory=lambda: [5, 10, 15, 20, 25, 30])
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"
     save_path: str = ""
+    blocklist_path: str = ""
+    keyword_mask_method: Literal["regex", "activation", "sae", "probe"] = "regex"
+    activation_mask_threshold: float = 0.2
+    activation_mask_layer: int = 16
+    sae_latents_path: str = ""
+    sae_mask_frac: float = 0.115
+    probe_mask_path: str = ""
+    probe_mask_layer: int = 11
+    probe_mask_frac: float = 0.105
     revision: str = "main"
     hidden_dim: int = 4096
 
@@ -352,8 +361,9 @@ if __name__ == "__main__":
         f"Grad Acc steps: {grad_acc_steps}."
     )
 
+    output_dir = run_cfg.save_path or "./results"
     training_args = TrainingArguments(
-        output_dir="./results",
+        output_dir=output_dir,
         learning_rate=run_cfg.lr,
         gradient_accumulation_steps=grad_acc_steps,
         per_device_train_batch_size=run_cfg.pdbs,
@@ -374,7 +384,9 @@ if __name__ == "__main__":
     trainer.train()
 
     if run_cfg.lora:
+        print("\nMerging LoRA weights...")
         model = model.merge_and_unload()  # type: ignore
+        trainer.model = model
 
     if run_cfg.save_path:
         save_checkpoint(trainer, run_cfg.save_path, tokenizer)
