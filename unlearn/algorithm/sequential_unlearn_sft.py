@@ -20,7 +20,7 @@ from transformers.trainer_utils import seed_worker
 
 import wandb
 from unlearn.utils.keyword_masks import apply_keyword_masks
-from unlearn.utils.math import max_entropy_kl_loss, top_k_entropy_loss
+from unlearn.utils.math import max_entropy_kl_loss
 from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
@@ -256,7 +256,12 @@ class SequentialSftTrainer(Trainer):
         elif self.run_args.use_top_k_entropy:
             k = self.run_args.top_k
             log_k = torch.log(torch.tensor(float(k), device=target_device))
-            return top_k_entropy_loss(logits_masked, k=k) / log_k
+            topk_logits, _ = torch.topk(logits_masked, k, dim=-1)
+            probs = F.softmax(topk_logits, dim=-1)
+            entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1).mean()
+            self._topk_entropy = entropy.item()
+            self._topk_entropy_ratio = entropy.item() / log_k.item()
+            return max_entropy_kl_loss(topk_logits) / log_k
 
         elif self.run_args.use_max_entropy_kl:
             vocab_size = logits.shape[-1]
@@ -460,6 +465,9 @@ class SequentialSftTrainer(Trainer):
                     msg += f" | l2sp: {l2sp_norm:.4f}"
                 if keyword_mask_frac is not None:
                     msg += f" | kw_mask: {keyword_mask_frac:.3f}"
+                if hasattr(self, "_topk_entropy"):
+                    msg += f" | topk_H: {self._topk_entropy:.4f} "
+                    msg += f"({self._topk_entropy_ratio:.3f})"
                 print(msg)
 
             if wandb.run is not None:
@@ -479,6 +487,9 @@ class SequentialSftTrainer(Trainer):
                     log_dict["l2sp_norm"] = l2sp_norm
                 if keyword_mask_frac is not None:
                     log_dict["keyword_mask_frac"] = keyword_mask_frac
+                if hasattr(self, "_topk_entropy"):
+                    log_dict["topk_entropy"] = self._topk_entropy
+                    log_dict["topk_entropy_ratio"] = self._topk_entropy_ratio
                 wandb.log(log_dict, step=self.current_training_step)
 
         self.current_training_step += 1

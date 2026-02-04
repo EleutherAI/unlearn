@@ -25,21 +25,21 @@ Note that hyperparameters don't transfer between number of training steps.
 
 Retain L2 computed at fixed layers [5,10,15,20,25,30], not at the current target layer. LoRA params in all layers receive gradient regardless, so retain gradients were non-zero, but the L2 constraint was on different layers than the forget target.
 
-| Run | Layers | remove_coef | retain_coef | Steps | WMDP Bio Robust | MMLU | correct_prob | Notes |
-|-----|--------|-------------|-------------|-------|-----------------|------|--------------|-------|
-| - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | Baseline |
-| 1 | 28→16 (step 4) | 10 | 5 | 128 | 0.3134 | 0.4479 | | |
-| 2 | 28→16 (step 4) | 20 | 5 | 128 | 0.3076 | 0.4454 | | |
-| 3 | 28→16 (step 4) | 30 | 5 | 128 | 0.2995 | 0.4458 | | |
-| 4 | 28→16 (step 4) | 40 | 5 | 128 | 0.2961 | 0.4410 | | |
-| 5 | 28→16 (step 4) | 50 | 5 | 128 | **0.2684** | **0.4437** | 0.1355 | Random (~0.25) |
-| 6 | 28→16 (step 4) | 50 | 5 | 1280 | 0.2535 | 0.2540 | | 10x examples, MMLU collapsed |
-| 7 | 28→16 (step 4) | 50 | 5 | 128 | 0.2535 | 0.2540 | | Hook migration v1 (4-layer retain), Job 2088651 |
-| 8 | 28→16 (step 4) | 50 | 5 | 128 | 0.3076 | 0.4488 | | Hook migration v2 (all-layer retain), Job 2088695 |
-| 9 | 28→16 (step 4) | 50 | 5 | 128 | 0.3191 | 0.4500 | | +ultrachat |
-| 10 | 28→16 (step 4) | 50 | 5 | 128 | 0.2823 | 0.4303 | | Replication of run 5, Job 2110179 |
-| 11 | 28→16 (step 4) | 50 | 2 | 128 | 0.3088 | 0.4516 | | +ultrachat, Job 2110779 |
-| 12 | 28→16 (step 4) | 70 | 2 | 128 | 0.3053 | 0.4518 | | +ultrachat, Job 2113085 |
+| Run | Layers | remove_coef | retain_coef | Steps | WMDP Bio Robust | MMLU | correct_prob | mean_srank | Notes |
+|-----|--------|-------------|-------------|-------|-----------------|------|--------------|------------|-------|
+| - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | | Baseline |
+| 1 | 28→16 (step 4) | 10 | 5 | 128 | 0.3134 | 0.4479 | | | |
+| 2 | 28→16 (step 4) | 20 | 5 | 128 | 0.3076 | 0.4454 | | | |
+| 3 | 28→16 (step 4) | 30 | 5 | 128 | 0.2995 | 0.4458 | | | |
+| 4 | 28→16 (step 4) | 40 | 5 | 128 | 0.2961 | 0.4410 | | | |
+| 5 | 28→16 (step 4) | 50 | 5 | 128 | **0.2684** | **0.4437** | 0.1355 | 1.30 | Random (~0.25) |
+| 6 | 28→16 (step 4) | 50 | 5 | 1280 | 0.2535 | 0.2540 | | | 10x examples, MMLU collapsed |
+| 7 | 28→16 (step 4) | 50 | 5 | 128 | 0.2535 | 0.2540 | | | Hook migration v1 (4-layer retain), Job 2088651 |
+| 8 | 28→16 (step 4) | 50 | 5 | 128 | 0.3076 | 0.4488 | | | Hook migration v2 (all-layer retain), Job 2088695 |
+| 9 | 28→16 (step 4) | 50 | 5 | 128 | 0.3191 | 0.4500 | | | +ultrachat |
+| 10 | 28→16 (step 4) | 50 | 5 | 128 | 0.2823 | 0.4303 | | | Replication of run 5, Job 2110179 |
+| 11 | 28→16 (step 4) | 50 | 2 | 128 | 0.3088 | 0.4516 | | | +ultrachat, Job 2110779 |
+| 12 | 28→16 (step 4) | 70 | 2 | 128 | 0.3053 | 0.4518 | | | +ultrachat, Job 2113085 |
 
 ### KL Retain Loss (LoRA) - Worse Than L2 Norm Activation Retain
 
@@ -51,14 +51,14 @@ Using relatively more retain layers then forget layers is an interesting strateg
 
 Even using different forget and retain layers is interesting. This could help circuits to be "rebuilt" rather than "modified".
 
-| Run | Layers | remove_coef | retain_coef | Steps | WMDP Bio Robust | MMLU | correct_prob | Notes |
-|-----|--------|-------------|-------------|-------|-----------------|------|--------------|-------|
-| - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | Baseline |
-| 1 | 28→16 (step 4) | 50 | 5 | 128 | 0.2673 | 0.2295 | | Collapsed |
-| 7 | 28→16 (step 4) | 5 | 50 | 128 | 0.2730 | 0.4034 | | Works |
-| 8 | 28→16 (step 4) | 5 | 100 | 128 | **0.2788** | **0.4195** | 0.1384 | I think this one might have targeted different layers for retain |
-| 9 | 28→16 (step 4) | 5 | 100 | 1280 | 0.2673 | 0.2295 | | 10x examples |
-| 12 | 28→16 (step 4) | 5 | 100 | 128 | **0.3237** | **0.4375** | 0.1918 | |
+| Run | Layers | remove_coef | retain_coef | Steps | WMDP Bio Robust | MMLU | correct_prob | mean_srank | Notes |
+|-----|--------|-------------|-------------|-------|-----------------|------|--------------|------------|-------|
+| - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | | Baseline |
+| 1 | 28→16 (step 4) | 50 | 5 | 128 | 0.2673 | 0.2295 | | | Collapsed |
+| 7 | 28→16 (step 4) | 5 | 50 | 128 | 0.2730 | 0.4034 | | | Works |
+| 8 | 28→16 (step 4) | 5 | 100 | 128 | **0.2788** | **0.4195** | 0.1384 | 1.15 | I think this one might have targeted different layers for retain |
+| 9 | 28→16 (step 4) | 5 | 100 | 1280 | 0.2673 | 0.2295 | | | 10x examples |
+| 12 | 28→16 (step 4) | 5 | 100 | 128 | **0.3237** | **0.4375** | 0.1918 | 1.15 | |
 
 ### Max Entropy KL Forget Loss, L2 Retain Loss (LoRA)
 
@@ -66,10 +66,10 @@ Even using different forget and retain layers is interesting. This could help ci
 
 Retain L2 computed at fixed layers [5,10,15,20,25,30], not at the current target layer. LoRA params in all layers receive gradient regardless, so retain gradients were non-zero, but the L2 constraint was on different layers than the forget target.
 
-| Run | Layers | remove_coef | retain_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | correct_prob | Notes |
-|-----|--------|-------------|-------------|-------|-------------|-------------|-----------------|------|--------------|-------|
-| - | - | - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | Baseline |
-| 1 | 31→11 (step 4) | 10 | 5 | 192 | 2.55 | 1.05 | **0.2857** | **0.4067** | 0.1851 | |
+| Run | Layers | remove_coef | retain_coef | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | correct_prob | mean_srank | Notes |
+|-----|--------|-------------|-------------|-------|-------------|-------------|-----------------|------|--------------|------------|-------|
+| - | - | - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | | Baseline |
+| 1 | 31→11 (step 4) | 10 | 5 | 192 | 2.55 | 1.05 | **0.2857** | **0.4067** | 0.1851 | 1.51 | |
 
 ### Max Entropy KL Forget Loss, L2 Retain Loss (SFT, some MMLU degradation, more unlearning)
 
@@ -77,17 +77,17 @@ Retain L2 computed at fixed layers [5,10,15,20,25,30], not at the current target
 
 Retain L2 computed at the current target layer's output. Only the target layer's parameters are unfrozen per phase.
 
-| Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | correct_prob | Notes |
-|-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|--------------|-------|
-| - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | Baseline |
-| 1 | 31→11 (step 4) | 5 | 5 | 2e-4 | 768 | 1.28 | 1.93 | 0.3929 | 0.4462 | | Job 2110034 |
-| 2 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | 1.70 | 1.61 | **0.2834** | **0.4239** | 0.1394 | Job 2110068 |
-| 3 | 31→1 (step 2) | 14 | 2 | 2e-4 | 2048 | | | | | | Job 2110099, OOM at step ~1024 |
-| 4 | 31→1 (step 2) | 10 | 2 | 2e-4 | 2048 | 0.15 | 1.94 | 0.2730 | 0.3618 | | Job 2110783 |
-| 5 | 31→1 (step 2) | 5 | 2 | 2e-4 | 2048 | 0.15 | 1.94 | 0.3065 | 0.4034 | | Job 2110784 |
-| 6 | 31→1 (step 2) | 2 | 2 | 2e-4 | 2048 | 0.14 | 1.94 | 0.3514 | 0.4328 | | Job 2110785 |
-| 7 | 31→1 (step 2) | 1 | 2 | 2e-4 | 2048 | 0.14 | 2.00 | 0.3917 | 0.4447 | | Job 2110786 |
-| 8 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | 5.53 | 1.61 | **0.2949** | **0.4199** | 0.1410 | +ultrachat |
+| Run | Layers | remove_coef | retain_coef | lr | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | correct_prob | mean_srank | Notes |
+|-----|--------|-------------|-------------|-----|-------|-------------|-------------|-----------------|------|--------------|------------|-------|
+| - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | | Baseline |
+| 1 | 31→11 (step 4) | 5 | 5 | 2e-4 | 768 | 1.28 | 1.93 | 0.3929 | 0.4462 | | | Job 2110034 |
+| 2 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | 1.70 | 1.61 | **0.2834** | **0.4239** | 0.1394 | 3.09 | Job 2110068 |
+| 3 | 31→1 (step 2) | 14 | 2 | 2e-4 | 2048 | | | | | | | Job 2110099, OOM at step ~1024 |
+| 4 | 31→1 (step 2) | 10 | 2 | 2e-4 | 2048 | 0.15 | 1.94 | 0.2730 | 0.3618 | | | Job 2110783 |
+| 5 | 31→1 (step 2) | 5 | 2 | 2e-4 | 2048 | 0.15 | 1.94 | 0.3065 | 0.4034 | | | Job 2110784 |
+| 6 | 31→1 (step 2) | 2 | 2 | 2e-4 | 2048 | 0.14 | 1.94 | 0.3514 | 0.4328 | | | Job 2110785 |
+| 7 | 31→1 (step 2) | 1 | 2 | 2e-4 | 2048 | 0.14 | 2.00 | 0.3917 | 0.4447 | | | Job 2110786 |
+| 8 | 31→11 (step 4) | 14 | 1 | 2e-4 | 768 | 5.53 | 1.61 | **0.2949** | **0.4199** | 0.1410 | 2.65 | +ultrachat |
 
 ### Max Entropy KL Forget Loss, L2 Retain Loss (SFT + Muon Optimizer)
 
@@ -96,8 +96,8 @@ Same setup as above but using MuonAdamW optimizer (Muon for 2D hidden matrices, 
 | Run | Layers | remove_coef | retain_coef | lr (muon) | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | correct_prob | mean_erank | mean_srank | Notes |
 |-----|--------|-------------|-------------|-----------|-------|-------------|-------------|-----------------|------|--------------|------------|------------|-------|
 | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | 0.2008 | | | Baseline |
-| 1 | 31→11 (step 4) | 14 | 1 | 0.02 | 768 | ~6.8 | 1.04 | **0.2707** | **0.4160** | 0.1418 | | | Job 2110810 |
-| 2 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.9 | 1.07 | **0.3007** | **0.4367** | 0.1577 | 2626 | | Job 2110867 |
+| 1 | 31→11 (step 4) | 14 | 1 | 0.02 | 768 | ~6.8 | 1.04 | **0.2707** | **0.4160** | 0.1418 | 2189 | 3.15 | Job 2110810 |
+| 2 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~5.9 | 1.07 | **0.3007** | **0.4367** | 0.1577 | 2626 | 3.28 | Job 2110867 |
 | 3 | 31→11 (step 4) | 5 | 2 | 0.02 | 1536 | ~3.5 | 1.05 | 0.3479 | 0.4410 | | | | Job 2113120, epochs_per_layer=2 |
 | 4 | 31→11 (step 4) | 5 | 2 | 1e-3 | 768 | ~5.9 | 1.07 | 0.3018 | 0.4368 | | | | Job 2113524 |
 | 5 | 31→11 (step 4) | 14 | 1 | 1e-3 | 768 | ~6.8 | 1.04 | 0.2707 | 0.4160 | | | | Job 2113525 |
@@ -127,15 +127,19 @@ Maximizes entropy over only the top-100 most likely tokens at each position (nor
 |-----|--------|-------------|-------------|-------|-------------|-------------|-----------------|------|-------|
 | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
 | 1 | 28→16 (step 4) | 50 | 5 | 128 | ~2.74 | ~1.00 | **0.2857** | **0.4499** | Job 2133393 |
+| 2 | 31→0 (step 1) | 50 | 5 | 1024 | | | | | All layers, 32 steps/layer |
 
-### Top-K Entropy Forget Loss (K=100), L2 Retain Loss (SFT + Muon + Keyword Mask)
+### Top-K Entropy Forget Loss, L2 Retain Loss (SFT + Muon + Keyword Mask)
 
 1024 examples, layers 31→11 (step 4), 2 nodes / 8 GPUs, pdbs=1, grad_accum=4, 128 steps/phase, 768 total steps. +regex keyword_mask, +ultrachat.
 
-| Run | Layers | remove_coef | retain_coef | lr (muon) | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
-|-----|--------|-------------|-------------|-----------|-------|-------------|-------------|-----------------|------|-------|
-| - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 1 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~2.5 | ~1.01 | **0.3260** | **0.4380** | Job 2133394 |
+| Run | K | Layers | remove_coef | retain_coef | lr (muon) | Steps | retain_loss | forget_loss | WMDP Bio Robust | MMLU | Notes |
+|-----|---|--------|-------------|-------------|-----------|-------|-------------|-------------|-----------------|------|-------|
+| - | - | - | - | - | - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 1 | 100 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | ~2.5 | ~1.01 | **0.3260** | **0.4380** | Job 2133394 |
+| 2 | 10 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | | | | | Job 2133435 |
+| 3 | 50 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | | | | | Job 2133436 |
+| 4 | 200 | 31→11 (step 4) | 5 | 2 | 0.02 | 768 | | | | | Job 2133437 |
 
 ### Max Entropy KL Forget Loss, KL Retain Loss (Naive SFT, breaks differential unlearning)
 
@@ -328,5 +332,6 @@ Plots saved in `runs/tamper_attack/` and `runs/tamper_kl_rm5_ret100/`.
 | Muon+KW (rm5/ret2, L31-11) | 0.2903 | 0.4090 | 0.4101 | 0.4263 | 0.4343 | 0.4332 | 0.4217 | 0.4182 | 0.4205 | 0.4251 | 0.4309 | 0.4320 |
 | NLL Retain (rm2/ret200, L31-1s2) | 0.3975 | 0.4136 | 0.4332 | 0.4309 | 0.4332 | 0.4332 | 0.4424 | 0.4389 | 0.4389 | 0.4424 | 0.4435 | 0.4412 |
 | SFT L2+UC (rm14/ret1, L31-11) | 0.2949 | 0.4182 | 0.4228 | 0.4597 | 0.4447 | 0.4401 | 0.4389 | 0.4320 | 0.4320 | 0.4263 | 0.4251 | 0.4274 |
+| Muon+KW+L2SP (rm5/ret2, L31-11) | 0.3848 | 0.4113 | 0.3998 | 0.4401 | 0.4401 | 0.4435 | 0.4412 | 0.4424 | 0.4459 | 0.4435 | 0.4424 | 0.4435 |
 
-All three models show rapid recovery by step 10. Plots saved in `runs/tamper_attack_muon_kw_rm5_ret2/`, `runs/tamper_attack_nllret_rm2_ret200/`, `runs/tamper_attack_sft_l2_uc_rm14_ret1/`.
+All four models show rapid recovery by step 10-30. Plots saved in `runs/tamper_attack_muon_kw_rm5_ret2/`, `runs/tamper_attack_nllret_rm2_ret200/`, `runs/tamper_attack_sft_l2_uc_rm14_ret1/`, `runs/tamper_attack_muon_kw_l2sp/`.
