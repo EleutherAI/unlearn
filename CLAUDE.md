@@ -1,5 +1,20 @@
 Manually test every change you make by running the appropriate script or CLI command. When you run the script, frequently monitor the output until it appears to be running without issue, and then check again every 30 seconds until either 3 minutes have passed or multiple iteration loops of the main computation have run without error. If you find an error unrelated to your task, at minimum quote back the exact error to the user after completing your task.
 
+# lm_eval: multi-GPU is mandatory
+
+Always use all 4 GPUs when running lm_eval, whether from a script, sbatch, or Python code. The ONLY correct way to get multi-GPU data parallelism is `torchrun`:
+
+```bash
+torchrun --nproc_per_node=4 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL ...
+```
+
+NEVER use `parallelize=True` in model_args — it does NOT give you data parallelism, it does pipeline parallelism on one process which is slower and not what we want.
+
+NEVER run `python -m lm_eval` — always use `torchrun --nproc_per_node=4 -m lm_eval`.
+
+NEVER use `simple_evaluate()` or the lm_eval Python API for standalone evals — always shell out to `torchrun`. The Python API runs on a single GPU unless you set up the distributed environment yourself, which is more complex than just using torchrun.
+
 # Experiment Logs and Unlearning Hyperparameters
 
 When you run a training experiment or hyperparameter tune save the settings and results to a markdown file for the algorithm in the experiment_logs directory. Avoid creating new tables - few tables makes comparison easy. Add the baseline model evaluation results as the first row. Save rows for the settings you are about to test first then add results as soon as they're available.
@@ -17,6 +32,17 @@ Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the
 ## Training mode
 
 Default to SFT (full parameter training) unless LoRA is specifically requested.
+
+## Epochs and data budget
+
+Always use 1 epoch unless explicitly told otherwise. Control training length via `num_train_examples` (or dataset size) and batch size, not epochs.
+
+Before launching any training run, compute and report to the user:
+- Total unique training examples
+- Total training steps (= examples / (batch_size × grad_accumulation × world_size))
+- Effective number of epochs (= steps × batch_size × grad_accumulation / unique_examples)
+
+If the effective epoch count exceeds 1, flag it.
 
 ## Learning rates
 
@@ -56,20 +82,40 @@ When you follow project conventions don't leave a comment saying (following proj
 
 Mark tests requiring GPUs with `@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")`.
 
-To run the custom WMDP bio subset evals the path must be included. Here's a programmatic example, although this can also be done from the command line:
+To run custom WMDP bio subset evals, include the task path: `--include_path "/home/a6a/lucia.a6a/unlearn/unlearn/lm_eval_tasks"`
 
-```
-# Setup Tasks
-include_path = "/path/to/unlearn/unlearn/lm_eval_tasks"
-tm = TaskManager(verbosity="INFO", include_path=include_path)
-results = simple_evaluate(
-    model=lm,
-    tasks=["wmdp_bio_robust"],
-    task_manager=tm,
-)
-```
+### lm_eval reference
 
-When you run the LM Eval Harness use all available GPUs on the node. You may need to launch a script using `subprocess` and capture its output.
+- MMLU uses **1-shot** (`--num_fewshot 1`), not 5-shot
+- Use `--verbosity WARNING`
+- See the top of this file for multi-GPU requirements
+
+### lm_eval dtype fix (lm_eval <=0.4.11 + transformers >=4.55)
+
+lm_eval 0.4.10/0.4.11 passes `dtype=get_dtype(dtype)` to `AutoModelForCausalLM.from_pretrained()`, but transformers >=4.55 does not pop `dtype` from kwargs, so it leaks through to the model constructor (e.g. `GPTNeoXForCausalLM.__init__()`) causing `TypeError: unexpected keyword argument 'dtype'`.
+
+The fix is in `lm_eval/models/huggingface.py` — change `dtype=get_dtype(dtype)` to `torch_dtype=get_dtype(dtype)` on the two `from_pretrained()` calls (around lines 635 and 718). `torch_dtype` is the correct transformers kwarg. This fix has been applied locally.
+
+If lm_eval is upgraded past 0.4.11, check whether the upstream fix is included before reapplying.
+
+Example:
+```bash
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
+
+torchrun --nproc_per_node=4 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL \
+    --tasks wmdp_bio_robust \
+    --include_path "/home/a6a/lucia.a6a/unlearn/unlearn/lm_eval_tasks" \
+    --batch_size 32 \
+    --verbosity WARNING
+
+torchrun --nproc_per_node=4 -m lm_eval --model hf \
+    --model_args pretrained=$MODEL \
+    --tasks mmlu \
+    --num_fewshot 1 \
+    --batch_size 32 \
+    --verbosity WARNING
+```
 
 ## Environment Setup
 

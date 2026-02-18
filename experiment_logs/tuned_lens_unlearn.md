@@ -74,6 +74,18 @@ Runs below use a bf16 reference model (matching training precision), giving accu
 | 1024     | 32    | 100.0       | 5.0         | 0.02    | 3e-4    | pending     | pending     | pending     | pending | Job 2075615 |
 | 1024     | 32    | 200.0       | 5.0         | 0.02    | 3e-4    | pending     | pending     | pending     | pending | Job 2075616 |
 
+### LoRA + AdamW + Update Norm Penalty
+
+Added update_coef * ||theta - theta_0||^2 penalty to push parameters away from init while preserving retain/forget balance.
+
+| examples | epochs | steps | retain_coef | remove_coef | update_coef | lr | batch | LoRA rank | WMDP Robust | MMLU | Notes |
+|----------|--------|-------|-------------|-------------|-------------|-----|-------|-----------|-------------|------|-------|
+| -        | -      | -     | -           | -           | -           | -   | -     | -         | 42.97%      | 45.10% | Baseline |
+| 8192     | 1      | 256   | 5.0         | 5.0         | 0.0         | 1e-3 | 32   | 16        | 23.16% | 45.83% | Job 2323981a |
+| 8192     | 1      | 256   | 5.0         | 5.0         | 1e-6        | 1e-3 | 32   | 16        | 23.27% | 45.40% | Job 2323981b |
+| 8192     | 1      | 256   | 5.0         | 5.0         | 1e-5        | 1e-3 | 32   | 16        | 23.50% | 45.35% | Job 2323981c |
+| 8192     | 1      | 256   | 5.0         | 5.0         | 1e-4        | 1e-3 | 32   | 16        | 23.62% | 45.83% | Job 2323981d |
+
 ## Tamper Resistance (Finetune Attack)
 
 Model: `deep-ignorance-unfiltered_lens_ex8192_rm5.0_ret5.0`

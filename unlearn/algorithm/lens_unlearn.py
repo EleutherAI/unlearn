@@ -1,7 +1,9 @@
 """Unlearning via entropy maximization at frozen tuned lens layers."""
 
+import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal, cast
 
 import torch
@@ -18,7 +20,7 @@ from tuned_lens import TunedLens
 from unlearn.utils.hook import ActivationCapture, resolve_layer_names
 from unlearn.utils.keyword_masks import apply_keyword_masks
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
+from unlearn.utils.worker_utils import get_model_and_tokenizer
 
 
 class UnlearningTrainer(Trainer):
@@ -52,6 +54,14 @@ class UnlearningTrainer(Trainer):
 
         self.layer_id_to_name = resolve_layer_names(model, lora_target_layers)
         self.target_module_names = list(self.layer_id_to_name.values())
+
+        if getattr(run_args, "update_coef", 0.0) > 0:
+            self.initial_params: dict[str, torch.Tensor] = {}
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    self.initial_params[name] = param.data.clone().cpu()
+        else:
+            self.initial_params = {}
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -219,6 +229,17 @@ class RRTrainer(UnlearningTrainer):
 
         loss = retain_coeff * retain_loss + circuit_breaker_coeff * circuit_breaker_loss
 
+        update_coef = getattr(self.run_args, "update_coef", 0.0)
+        update_norm = torch.tensor(0.0, device=target_device)
+        if update_coef > 0 and self.initial_params:
+            for name, param in model.named_parameters():
+                key = name.removeprefix("module.")
+                if param.requires_grad and key in self.initial_params:
+                    init_p = self.initial_params[key].to(param.device)
+                    diff = param - init_p.detach()
+                    update_norm = update_norm + diff.pow(2).sum()
+            loss = loss - update_coef * update_norm
+
         if (
             self.current_training_step % 32 == 0
             and int(os.environ.get("LOCAL_RANK", 0)) == 0
@@ -228,13 +249,16 @@ class RRTrainer(UnlearningTrainer):
                 if isinstance(mean_entropy, torch.Tensor)
                 else mean_entropy
             )
-            print(
-                f"retain_coeff: {retain_coeff:.4f} || "
-                f"forget_coeff: {circuit_breaker_coeff:.4f} || "
-                f"retain_loss: {retain_loss:.4f} || "
-                f"forget_loss: {circuit_breaker_loss:.4f} || "
-                f"mean_entropy: {entropy_val:.4f}"
-            )
+            log_parts = [
+                f"retain_coeff: {retain_coeff:.4f}",
+                f"forget_coeff: {circuit_breaker_coeff:.4f}",
+                f"retain_loss: {retain_loss:.4f}",
+                f"forget_loss: {circuit_breaker_loss:.4f}",
+                f"mean_entropy: {entropy_val:.4f}",
+            ]
+            if update_coef > 0:
+                log_parts.append(f"update_norm: {update_norm.item():.4f}")
+            print(" || ".join(log_parts))
 
         self.current_training_step += 1
         return (loss,) if return_outputs else loss
@@ -261,6 +285,7 @@ class LensUnlearnConfig:
     lens_path: str = ""
     skip_eval: bool = False
     epochs: int = 1
+    update_coef: float = 0.0
 
 
 if __name__ == "__main__":
@@ -397,6 +422,19 @@ if __name__ == "__main__":
         model = model.merge_and_unload()  # type: ignore
 
     if run_cfg.save_path:
-        save_checkpoint(trainer, run_cfg.save_path, tokenizer)
+        trainer.accelerator.wait_for_everyone()
+        if trainer.accelerator.is_main_process:
+            model.save_pretrained(run_cfg.save_path, safe_serialization=True)
+            tokenizer.save_pretrained(run_cfg.save_path)
+
+            config_path = Path(run_cfg.save_path) / "config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    config_dict = json.load(f)
+                if config_dict.get("dtype") is None:
+                    config_dict["dtype"] = config_dict.get("torch_dtype", "float32")
+                    with open(config_path, "w") as f:
+                        json.dump(config_dict, f, indent=2)
+        trainer.accelerator.wait_for_everyone()
 
     print("Done :)")

@@ -87,7 +87,19 @@ def main():
         load_dataset("EleutherAI/wmdp_bio_robust_mcqa", subset)
     print("WMDP Bio Robust done.")
 
-    print("All eval datasets cached.")
+    print("Caching WikiText (wikitext-103-raw-v1)...")
+    load_dataset("EleutherAI/wikitext_document_level", "wikitext-103-raw-v1")
+    print("WikiText done.")
+
+    print("Caching UltraChat (train_sft split)...")
+    load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
+    print("UltraChat done.")
+
+    print("Caching WMDP-Bio-Remove-Dataset...")
+    load_dataset("Unlearning/WMDP-Bio-Remove-Dataset")
+    print("WMDP-Bio-Remove done.")
+
+    print("All datasets cached.")
 
 
 if __name__ == "__main__":

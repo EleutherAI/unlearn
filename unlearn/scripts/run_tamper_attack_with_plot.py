@@ -8,6 +8,7 @@ import argparse
 import gc
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -83,9 +84,9 @@ def run_lmeval_subprocess(model_path: str, tasks: list[str], num_gpus: int = 4) 
         "--tasks",
         tasks_str,
         "--batch_size",
-        "auto",
+        "32",
         "--verbosity",
-        "ERROR",
+        "WARNING",
         "--output_path",
         str(output_dir),
     ]
@@ -162,6 +163,7 @@ class TamperAttackConfig:
     warmup_steps: int = 0  # when >0, overrides warmup_ratio
     max_steps: int = -1  # overrides epochs when positive
     seed: int = 42
+    tamper_data: Literal["bio", "benign", "bio_chat"] = "bio"
 
 
 class MuonTrainer(Trainer):
@@ -370,7 +372,57 @@ def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=5):
     return chunks
 
 
-def prepare_dataset(config: TamperAttackConfig, tokenizer):
+def prepare_wikitext_examples(tokenizer, num_examples=256, seed=42, max_chunks=5):
+    ds = load_dataset(
+        "EleutherAI/wikitext_document_level",
+        "wikitext-103-raw-v1",
+        split="train",
+    )
+    docs = [d for d in ds if len(d["page"]) > 200]
+    rng = random.Random(seed)
+    rng.shuffle(docs)
+
+    chunks = []
+    for doc in docs:
+        tokenized = tokenizer(doc["page"], truncation=False)
+        example = {
+            "input_ids": tokenized["input_ids"],
+            "attention_mask": tokenized["attention_mask"],
+            "labels": tokenized["input_ids"].copy(),
+        }
+        chunks.extend(chunk_example(example, tokenizer, max_chunks=max_chunks))
+        if len(chunks) >= num_examples:
+            break
+    return chunks[:num_examples]
+
+
+def prepare_ultrachat_examples(tokenizer, num_examples=256, seed=42, max_chunks=5):
+    ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
+    ds = ds.shuffle(seed=seed)
+
+    chunks = []
+    for row in ds:
+        messages = row["messages"]
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            parts.append(f"{role}: {content}")
+        text = "\n\n".join(parts)
+
+        tokenized = tokenizer(text, truncation=False)
+        example = {
+            "input_ids": tokenized["input_ids"],
+            "attention_mask": tokenized["attention_mask"],
+            "labels": tokenized["input_ids"].copy(),
+        }
+        chunks.extend(chunk_example(example, tokenizer, max_chunks=max_chunks))
+        if len(chunks) >= num_examples:
+            break
+    return chunks[:num_examples]
+
+
+def prepare_bio_examples(config: TamperAttackConfig, tokenizer):
     wmdp_bio_forget = load_dataset("Unlearning/WMDP-Bio-Remove-Dataset")
     training_data = (
         wmdp_bio_forget["train"]
@@ -389,6 +441,36 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
         )
         if (i + 1) % 100 == 0:
             print(f"Processed {i+1} examples, total chunks: {len(chunked_examples)}")
+    return chunked_examples
+
+
+def prepare_dataset(config: TamperAttackConfig, tokenizer):
+    if config.tamper_data == "bio":
+        chunked_examples = prepare_bio_examples(config, tokenizer)
+    elif config.tamper_data == "benign":
+        half = config.num_train_examples // 2
+        print(f"Preparing benign dataset (WikiText + UltraChat, {half} chunks each)...")
+        wiki_chunks = prepare_wikitext_examples(
+            tokenizer, num_examples=half, seed=config.seed, max_chunks=config.max_chunks
+        )
+        chat_chunks = prepare_ultrachat_examples(
+            tokenizer, num_examples=half, seed=config.seed, max_chunks=config.max_chunks
+        )
+        chunked_examples = wiki_chunks + chat_chunks
+        print(
+            f"WikiText chunks: {len(wiki_chunks)}, UltraChat chunks: {len(chat_chunks)}"
+        )
+    elif config.tamper_data == "bio_chat":
+        print("Preparing mixed dataset (WMDP-Bio + UltraChat)...")
+        bio_chunks = prepare_bio_examples(config, tokenizer)
+        bio_chunks = bio_chunks[:256]
+        chat_chunks = prepare_ultrachat_examples(
+            tokenizer, num_examples=256, seed=config.seed, max_chunks=config.max_chunks
+        )
+        chunked_examples = bio_chunks + chat_chunks
+        print(f"Bio chunks: {len(bio_chunks)}, UltraChat chunks: {len(chat_chunks)}")
+    else:
+        raise ValueError(f"Unknown tamper_data: {config.tamper_data}")
     return hf_dataset.from_list(chunked_examples).shuffle(seed=config.seed)
 
 
@@ -543,7 +625,22 @@ def run_tamper_attack(config: TamperAttackConfig):
         print(f"LoRA trainable: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
 
     dataset = prepare_dataset(config, tokenizer)
+    steps_per_epoch = len(dataset) // (config.batch_size * config.grad_accumulation)
+    effective_epochs = config.epochs
+    if config.max_steps > 0:
+        effective_epochs = (
+            config.max_steps * config.batch_size * config.grad_accumulation
+        ) / len(dataset)
     print(f"Training dataset size: {len(dataset)}")
+    print(
+        f"Steps per epoch: {steps_per_epoch}, effective epochs: {effective_epochs:.2f}"
+    )
+    assert effective_epochs <= 1.01, (
+        f"Training would run {effective_epochs:.1f} epochs over {len(dataset)} "
+        "examples. "
+        f"Increase --num_train_examples to get enough data for 1 epoch, "
+        f"or reduce --max_steps/--epochs."
+    )
 
     checkpoint_dir = output_dir / "eval_checkpoint"
     callback = WMDPEvalCallback(
@@ -751,6 +848,16 @@ def parse_args():
         default=42,
         help="Random seed for data shuffling and training",
     )
+    parser.add_argument(
+        "--tamper_data",
+        type=str,
+        default="bio",
+        choices=["bio", "benign", "bio_chat"],
+        help=(
+            "Training data for tamper attack: bio (WMDP-Bio), "
+            "benign (WikiText+UltraChat), bio_chat (WMDP-Bio+UltraChat)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -782,6 +889,7 @@ if __name__ == "__main__":
             warmup_steps=args.warmup_steps,
             max_steps=args.max_steps,
             seed=args.seed,
+            tamper_data=args.tamper_data,
         )
 
         results_path, plot_path = run_tamper_attack(config)

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -19,6 +20,15 @@ def save_checkpoint(trainer: Trainer, save_path: Path, tokenizer):
             save_path, state_dict=state_dict, safe_serialization=True
         )
         tokenizer.save_pretrained(save_path)
+
+        config_path = Path(save_path) / "config.json"
+        if config_path.exists():
+            with open(config_path) as f:
+                config_dict = json.load(f)
+            if config_dict.get("dtype") is None:
+                config_dict["dtype"] = config_dict.get("torch_dtype", "float32")
+                with open(config_path, "w") as f:
+                    json.dump(config_dict, f, indent=2)
 
     trainer.accelerator.wait_for_everyone()
 

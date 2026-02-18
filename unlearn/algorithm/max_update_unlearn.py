@@ -125,29 +125,56 @@ class MaxUpdateTrainer(Trainer):
 
         self.accelerator.backward(scaled_sft_loss)
 
-        # Add update gradient analytically: grad of -update_coef * ||theta - theta_0||^2
-        # = -2 * update_coef * (theta - theta_0)
+        # Add update gradient analytically.
+        # Maximize ||theta - theta_0|| (L2 norm, not squared) so gradient magnitude
+        # is constant: grad = -update_coef * (theta - theta_0) / ||theta - theta_0||
         update_norm = torch.tensor(0.0, device=target_device)
+        grad_acc = self.args.gradient_accumulation_steps
         with torch.no_grad():
             for name, param in model.named_parameters():
-                if param.requires_grad and name in self.initial_params:
-                    init_p = self.initial_params[name].to(param.device)
+                key = name.removeprefix("module.")
+                if param.requires_grad and key in self.initial_params:
+                    init_p = self.initial_params[key].to(param.device)
                     diff = param.data - init_p
-                    update_grad = -2.0 * self.run_cfg.update_coef * diff
+                    param_norm = diff.norm()
+                    update_norm = update_norm + param_norm.pow(2)
 
-                    if param.grad is not None:
-                        if self.run_cfg.same_sign_grads:
-                            same_sign = update_grad.sign() == param.grad.sign()
-                            param.grad.add_(update_grad * same_sign)
-                        else:
-                            param.grad.add_(update_grad)
+                    if self.run_cfg.element_norm:
+                        # Normalize to unit per-element RMS so all tensors
+                        # get equal per-element gradient regardless of shape.
+                        rms = diff.pow(2).mean().sqrt()
+                        unit_dir = diff / rms if rms > 1e-8 else diff
                     else:
-                        param.grad = update_grad
+                        # Per-tensor L2 normalization (unit L2 norm).
+                        # Small tensors get ~sqrt(N) larger per-element
+                        # gradient than large tensors.
+                        unit_dir = diff / param_norm if param_norm > 1e-8 else diff
 
-                    update_norm = update_norm + diff.pow(2).sum()
+                    if self.run_cfg.sgd_update:
+                        # Direct SGD step on param.data. Step size is
+                        # proportional to update_coef, unlike AdamW which
+                        # normalizes away the coefficient.
+                        step = (
+                            self.args.learning_rate
+                            * self.run_cfg.update_coef
+                            * unit_dir
+                            / grad_acc
+                        )
+                        param.data.add_(step)
+                    else:
+                        update_grad = -self.run_cfg.update_coef * unit_dir / grad_acc
+                        if param.grad is not None:
+                            if self.run_cfg.same_sign_grads:
+                                same_sign = update_grad.sign() == param.grad.sign()
+                                param.grad.add_(update_grad * same_sign)
+                            else:
+                                param.grad.add_(update_grad)
+                        else:
+                            param.grad = update_grad
 
         loss = (
-            self.run_cfg.retain_coef * sft_loss - self.run_cfg.update_coef * update_norm
+            self.run_cfg.retain_coef * sft_loss
+            - self.run_cfg.update_coef * update_norm.sqrt()
         )
 
         if (
@@ -156,7 +183,13 @@ class MaxUpdateTrainer(Trainer):
         ):
             from tqdm import tqdm
 
-            tag = " || [same_sign_grads]" if self.run_cfg.same_sign_grads else ""
+            tag = ""
+            if self.run_cfg.same_sign_grads:
+                tag += " || [same_sign_grads]"
+            if self.run_cfg.sgd_update:
+                tag += " || [sgd_update]"
+            if self.run_cfg.element_norm:
+                tag += " || [element_norm]"
             tqdm.write(
                 f"step: {self.current_training_step} || "
                 f"sft_loss: {sft_loss.item():.4f} || "
@@ -175,6 +208,8 @@ class MaxUpdateConfig:
     retain_coef: float = 1.0
     update_coef: float = 10.0
     same_sign_grads: bool = False
+    sgd_update: bool = False
+    element_norm: bool = True
     num_train_examples: int = 1024
     epochs: int = 1
     unlearn_corrupt: bool = False
