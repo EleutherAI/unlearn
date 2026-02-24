@@ -86,7 +86,7 @@ To run custom WMDP bio subset evals, include the task path: `--include_path "/ho
 
 ### lm_eval reference
 
-- MMLU uses **1-shot** (`--num_fewshot 1`), not 5-shot
+- MMLU uses 0-shot (default)
 - Use `--verbosity WARNING`
 - See the top of this file for multi-GPU requirements
 
@@ -112,7 +112,6 @@ torchrun --nproc_per_node=4 -m lm_eval --model hf \
 torchrun --nproc_per_node=4 -m lm_eval --model hf \
     --model_args pretrained=$MODEL \
     --tasks mmlu \
-    --num_fewshot 1 \
     --batch_size 32 \
     --verbosity WARNING
 ```
