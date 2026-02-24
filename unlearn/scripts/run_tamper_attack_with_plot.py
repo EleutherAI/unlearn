@@ -59,11 +59,11 @@ REPO_ROOT = Path("/home/a6a/lucia.a6a/unlearn")
 
 
 def run_lmeval_subprocess(model_path: str, tasks: list[str], num_gpus: int = 4) -> dict:
-    """Run lm_eval via subprocess with multiple GPUs using model parallelism.
+    """Run lm_eval via subprocess with multiple GPUs using torchrun data parallelism.
 
     The main training process should run with CUDA_VISIBLE_DEVICES=0 so the model
     stays on 1 GPU. This function overrides the env to expose all GPUs and uses
-    parallelize=True so lm_eval shards the model across them in a single process.
+    torchrun for data-parallel evaluation.
     """
     tasks_str = ",".join(tasks)
     include_path = str(REPO_ROOT / "unlearn" / "lm_eval_tasks")
@@ -73,14 +73,18 @@ def run_lmeval_subprocess(model_path: str, tasks: list[str], num_gpus: int = 4) 
     if output_dir.exists():
         shutil.rmtree(output_dir)
 
+    torchrun = str(Path(sys.executable).parent / "torchrun")
+
     cmd = [
-        sys.executable,
+        torchrun,
+        "--nproc_per_node",
+        str(num_gpus),
         "-m",
         "lm_eval",
         "--model",
         "hf",
         "--model_args",
-        f"pretrained={model_path},parallelize=True",
+        f"pretrained={model_path}",
         "--tasks",
         tasks_str,
         "--batch_size",
@@ -163,7 +167,8 @@ class TamperAttackConfig:
     warmup_steps: int = 0  # when >0, overrides warmup_ratio
     max_steps: int = -1  # overrides epochs when positive
     seed: int = 42
-    tamper_data: Literal["bio", "benign", "bio_chat"] = "bio"
+    tamper_data: Literal["bio", "benign", "bio_chat", "bio_flagged", "bio_forget"] = "bio"
+    flagged_docs_path: str = "/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix"
 
 
 class MuonTrainer(Trainer):
@@ -422,6 +427,52 @@ def prepare_ultrachat_examples(tokenizer, num_examples=256, seed=42, max_chunks=
     return chunks[:num_examples]
 
 
+def prepare_bio_forget_corpus_examples(config: TamperAttackConfig, tokenizer):
+    """Prepare examples from cais/wmdp-bio-forget-corpus (gated dataset)."""
+    ds = load_dataset("cais/wmdp-bio-forget-corpus", split="train", token=True)
+    ds = ds.shuffle(seed=config.seed)
+    if config.num_train_examples < len(ds):
+        ds = ds.select(range(config.num_train_examples))
+    tokenized = ds.map(lambda x: tokenize_examples_fn(x, tokenizer), batched=True)
+    chunked_examples = []
+    for i, example in enumerate(tokenized):
+        chunked_examples.extend(
+            chunk_example(
+                example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=config.max_chunks
+            )
+        )
+        if (i + 1) % 1000 == 0:
+            print(f"Bio forget: {i+1} examples, {len(chunked_examples)} chunks")
+    print(f"Bio forget corpus: {len(ds)} examples -> {len(chunked_examples)} chunks")
+    return chunked_examples
+
+
+def prepare_flagged_doc_examples(tokenizer, num_chunks, path, seed=42, max_chunks=5):
+    """Prepare examples from flagged annealing docs (plain text)."""
+    from datasets import load_from_disk
+
+    ds = load_from_disk(path)
+    ds = ds.filter(lambda x: len(x["text"]) > 200, num_proc=16, desc="Filter short")
+    ds = ds.shuffle(seed=seed)
+
+    chunks = []
+    for i, row in enumerate(ds):
+        tokenized = tokenizer(row["text"], truncation=False)
+        example = {
+            "input_ids": tokenized["input_ids"],
+            "attention_mask": tokenized["attention_mask"],
+            "labels": tokenized["input_ids"].copy(),
+        }
+        chunks.extend(chunk_example(example, tokenizer, max_chunks=max_chunks))
+        if len(chunks) >= num_chunks:
+            break
+        if (i + 1) % 5000 == 0:
+            print(f"Flagged docs: {i+1} docs, {len(chunks)} chunks")
+    chunks = chunks[:num_chunks]
+    print(f"Flagged docs: {i+1} docs -> {len(chunks)} chunks")
+    return chunks
+
+
 def prepare_bio_examples(config: TamperAttackConfig, tokenizer):
     wmdp_bio_forget = load_dataset("Unlearning/WMDP-Bio-Remove-Dataset")
     training_data = (
@@ -469,6 +520,28 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
         )
         chunked_examples = bio_chunks + chat_chunks
         print(f"Bio chunks: {len(bio_chunks)}, UltraChat chunks: {len(chat_chunks)}")
+    elif config.tamper_data == "bio_flagged":
+        print("Preparing mixed dataset (bio forget corpus + flagged annealing docs)...")
+        bio_chunks = prepare_bio_forget_corpus_examples(config, tokenizer)
+        total_needed = config.max_steps * config.batch_size * config.grad_accumulation
+        flagged_needed = max(0, total_needed - len(bio_chunks))
+        if flagged_needed > 0:
+            flagged_chunks = prepare_flagged_doc_examples(
+                tokenizer,
+                num_chunks=flagged_needed,
+                path=config.flagged_docs_path,
+                seed=config.seed,
+                max_chunks=config.max_chunks,
+            )
+        else:
+            flagged_chunks = []
+        chunked_examples = bio_chunks + flagged_chunks
+        print(
+            f"Bio forget: {len(bio_chunks)}, Flagged docs: {len(flagged_chunks)}, "
+            f"Total: {len(chunked_examples)}"
+        )
+    elif config.tamper_data == "bio_forget":
+        chunked_examples = prepare_bio_forget_corpus_examples(config, tokenizer)
     else:
         raise ValueError(f"Unknown tamper_data: {config.tamper_data}")
     return hf_dataset.from_list(chunked_examples).shuffle(seed=config.seed)
@@ -635,12 +708,11 @@ def run_tamper_attack(config: TamperAttackConfig):
     print(
         f"Steps per epoch: {steps_per_epoch}, effective epochs: {effective_epochs:.2f}"
     )
-    assert effective_epochs <= 1.01, (
-        f"Training would run {effective_epochs:.1f} epochs over {len(dataset)} "
-        "examples. "
-        f"Increase --num_train_examples to get enough data for 1 epoch, "
-        f"or reduce --max_steps/--epochs."
-    )
+    if effective_epochs > 1.01:
+        print(
+            f"WARNING: Training will run {effective_epochs:.1f} epochs over "
+            f"{len(dataset)} examples."
+        )
 
     checkpoint_dir = output_dir / "eval_checkpoint"
     callback = WMDPEvalCallback(
@@ -852,11 +924,25 @@ def parse_args():
         "--tamper_data",
         type=str,
         default="bio",
-        choices=["bio", "benign", "bio_chat"],
+        choices=["bio", "benign", "bio_chat", "bio_flagged", "bio_forget"],
         help=(
-            "Training data for tamper attack: bio (WMDP-Bio), "
-            "benign (WikiText+UltraChat), bio_chat (WMDP-Bio+UltraChat)"
+            "Training data for tamper attack: bio (WMDP-Bio Remove), "
+            "benign (WikiText+UltraChat), bio_chat (WMDP-Bio+UltraChat), "
+            "bio_flagged (bio forget corpus + flagged annealing docs), "
+            "bio_forget (cais/wmdp-bio-forget-corpus only)"
         ),
+    )
+    parser.add_argument(
+        "--flagged_docs_path",
+        type=str,
+        default="/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix",
+        help="Path to flagged annealing docs dataset on disk",
+    )
+    parser.add_argument(
+        "--max_chunks",
+        type=int,
+        default=5,
+        help="Max chunks per example (1 = truncate to context length, no chunking)",
     )
     return parser.parse_args()
 
@@ -890,6 +976,8 @@ if __name__ == "__main__":
             max_steps=args.max_steps,
             seed=args.seed,
             tamper_data=args.tamper_data,
+            flagged_docs_path=args.flagged_docs_path,
+            max_chunks=args.max_chunks,
         )
 
         results_path, plot_path = run_tamper_attack(config)

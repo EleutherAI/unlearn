@@ -327,6 +327,8 @@ class OrthCircuitBreakerConfig:
     lora_all_layers: bool = False
     exclude_lora_layers: list[int] = field(default_factory=list)
     optimizer: Literal["adamw", "muon"] = "adamw"
+    max_steps: int = -1
+    num_train_epochs: int = 1
 
 
 if __name__ == "__main__":
@@ -419,11 +421,12 @@ if __name__ == "__main__":
         gradient_accumulation_steps=grad_acc_steps,
         per_device_train_batch_size=run_cfg.pdbs,
         per_device_eval_batch_size=run_cfg.pdbs,
-        num_train_epochs=1,
+        max_steps=run_cfg.max_steps if run_cfg.max_steps > 0 else -1,
+        num_train_epochs=run_cfg.num_train_epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        fp16=not use_muon,
-        bf16=use_muon,
+        fp16=not use_muon and run_cfg.lora,
+        bf16=use_muon or not run_cfg.lora,
         save_strategy="no",
         ddp_find_unused_parameters=False,
     )

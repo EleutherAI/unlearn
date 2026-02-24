@@ -19,6 +19,7 @@ Run a systematic tamper evaluation sweep across LoRA rank models.
 | 4 | cosine | warmup_steps=30 | 2e-4 | `cosine_ws30_lr2e-4` |
 | 5 | cosine | warmup_steps=100 | 2e-4 | `cosine_ws100_lr2e-4` |
 | 6 | constant | warmup_ratio=0.1 | 2e-4 | `constant_wr01_lr2e-4` |
+| 7 | cosine | warmup_ratio=0.01 | 2e-5 | `paper_seed{N}` (bio_forget, 2 epochs) |
 
 ## Models
 
@@ -109,6 +110,38 @@ Output dir: `runs/tamper_filtered_{TAG}`
 Settings: `--max_steps=3000 --eval_every=500 --lr={LR} --lr_scheduler_type={SCHEDULE} {WARMUP_ARG} --eval_mmlu`
 
 Use the same 6 sweep configs as the LoRA rank models, but replace the LR column with the filtered model default (5e-5) for non-LR-sweep configs.
+
+## Paper Recipe (Deep Ignorance Adversarial Fine-tuning)
+
+From the deep ignorance paper's relearning attack:
+- Data: `cais/wmdp-bio-forget-corpus` (24,453 examples), use `--tamper_data=bio_forget --num_train_examples=24453`
+- 2 epochs (not max_steps), use `--epochs=2`
+- Effective batch size 16 (batch=1, grad_accumulation=16, default)
+- Context length 2048 (default)
+- lr=2e-5, cosine schedule, 1% warmup
+- Full-param (no LoRA)
+- Run 2 seeds (42, 43), report mean +/- std
+
+| # | Schedule | Warmup | LR | Data | Epochs | Tag |
+|---|----------|--------|----|------|--------|-----|
+| 7 | cosine | warmup_ratio=0.01 | 2e-5 | bio_forget | 2 | `paper_seed{N}` |
+
+Output dir: `runs/tamper_filtered_paper_seed{N}`
+
+```bash
+python -m unlearn.scripts.run_tamper_attack_with_plot \
+    --model_name=$MODEL \
+    --output_dir=runs/tamper_filtered_paper_seed{N} \
+    --num_train_examples=24453 \
+    --epochs=2 \
+    --eval_every=500 \
+    --lr=2e-5 \
+    --lr_scheduler_type=cosine \
+    --warmup_ratio=0.01 \
+    --eval_mmlu \
+    --tamper_data=bio_forget \
+    --seed={N}
+```
 
 ## Follow-up: Seed Sweep for Promising Configs
 

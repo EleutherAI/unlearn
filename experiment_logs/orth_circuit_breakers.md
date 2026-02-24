@@ -49,6 +49,15 @@ Goal: Validate orth loss improvements. Changes: orth_coeff ramps 0 to full over 
 | 15     | 15   | 15     | 512   | 28.28% | 28.11%    | 43.53% | 0.40        | 0.07    | 0.13      | Good unlearning + MMLU preserved |
 | 15     | 15   | 50     | 512   | 35.90% | **33.64%**    | **44.81%** | 0.26        | 0.09    | 0.25      | Better MMLU, weaker unlearning |
 
+### SFT 10k Steps (Golden Path)
+
+Goal: Establish baseline unlearning run at 10k steps for future comparison. SFT (full params), lr=2e-4, global_batch=32, 24000 examples (~13.3 effective epochs via max_steps=10000).
+
+| remove | orth | retain | steps | WMDP | WMDP Robust | MMLU | retain_loss | cb_loss | orth_loss | Notes |
+|--------|------|--------|-------|------|-------------|------|-------------|---------|-----------|-------|
+| -      | -    | -      | -     | -    | 42.97%      | 45.10% | -         | -       | -         | Baseline |
+| 15     | 15   | 15     | 10000 | -    | -           | -    | -           | -       | -         | Submitted |
+
 
 ## Tamper Resistance: Orthfix (retain=2, r=16)
 
@@ -371,6 +380,16 @@ Attack dataset: WikiText + UltraChat. Unlearned models: all-module, pdbs=1, rm23
 | r=32 | cos/ws30/lr2e-4 | 26.7 | 25.4 | 25.4 | 25.0 | 24.8 | 24.8 | 24.9 |
 | r=32 | cos/ws100/lr2e-4 | 26.7 | 26.8 | 26.2 | 26.0 | 26.2 | 26.2 | 26.2 |
 | r=32 | const/wr01/lr2e-4 | 26.7 | 26.7 | 28.3 | 25.1 | 25.4 | 25.8 | 25.7 |
+
+### deep-ignorance-e2e-strong-filter tamper sweep (AdamW, full-param, eval every 500) — WMDP Bio / MMLU
+
+Target model: `EleutherAI/deep-ignorance-e2e-strong-filter`. Baseline: 34.56 / 44.29. Unfiltered baseline: 42.97 / 45.10.
+
+| Config | Data | Steps | Step 0 | Step 500 | Step 1000 | Step 1500 | Step 2000 | Step 2500 | Step 3000 | Step 3500 | Step 4000 | Step 4500 | Step 5000 | Step 5500 | Step 6000 | Step 6500 | Step 7000 | Step 7500 | Step 8000 | Step 8500 | Notes |
+|--------|------|-------|--------|----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-------|
+| cos/wr10/lr5e-5 | bio_flagged | 10000 | 34.56 / 44.29 | 33.76 / 44.45 | 34.56 / 44.52 | 34.45 / 43.43 | 34.79 / 43.13 | 35.60 / 43.41 | 35.83 / 43.26 | 35.02 / 42.62 | 35.14 / 42.34 | 36.06 / 42.59 | 36.64 / 42.52 | 36.06 / 43.13 | 36.64 / 43.04 | 36.75 / 42.93 | 36.87 / 42.84 | 36.87 / 43.06 | 36.41 / 43.06 | 36.52 / 42.84 | Job 2434383 |
+| cos/wr01/lr2e-5/s42 | bio_forget | ~10622 | 34.56 / 44.29 | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | Paper recipe, 2ep, seed=42, job 2439121 |
+| cos/wr01/lr2e-5/s43 | bio_forget | ~10622 | 34.56 / 44.29 | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | Paper recipe, 2ep, seed=43, job 2439122 |
 
 ### JB-CO-Text Attack: LoRA Rank Sweep (pdbs=1, ret=0, all-module)
 
