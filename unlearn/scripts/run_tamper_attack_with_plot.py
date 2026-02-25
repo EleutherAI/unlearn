@@ -153,7 +153,6 @@ class TamperAttackConfig:
     num_train_examples: int = 512
     epochs: int = 1
     eval_every: int = 10
-    max_chunks: int = 5
     lr: float = 2e-5
     batch_size: int = 1
     grad_accumulation: int = 16
@@ -346,13 +345,13 @@ def tokenize_examples_fn(examples, tokenizer):
     return tokenized_output
 
 
-def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=5):
+def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH):
+    """Yield chunks of size `chunk_size` from a tokenized example."""
     pad_token_id = tokenizer.pad_token_id
     input_ids = example["input_ids"]
     attention_mask = example.get("attention_mask", [1] * len(input_ids))
     labels = example.get("labels", input_ids.copy())
     token_type_ids = example.get("token_type_ids", [0] * len(input_ids))
-    chunks = []
     for i in range(0, len(input_ids), chunk_size):
         chunk_input_ids = input_ids[i : i + chunk_size]
         chunk_attention_mask = attention_mask[i : i + chunk_size]
@@ -364,20 +363,15 @@ def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=5):
             chunk_attention_mask += [0] * pad_len
             chunk_labels += [-100] * pad_len
             chunk_token_type_ids += [0] * pad_len
-        chunks.append(
-            {
-                "input_ids": chunk_input_ids,
-                "attention_mask": chunk_attention_mask,
-                "labels": chunk_labels,
-                "token_type_ids": chunk_token_type_ids,
-            }
-        )
-        if i >= (max_chunks - 1) * chunk_size:
-            break
-    return chunks
+        yield {
+            "input_ids": chunk_input_ids,
+            "attention_mask": chunk_attention_mask,
+            "labels": chunk_labels,
+            "token_type_ids": chunk_token_type_ids,
+        }
 
 
-def prepare_wikitext_examples(tokenizer, num_examples=256, seed=42, max_chunks=5):
+def prepare_wikitext_examples(tokenizer, num_examples=256, seed=42):
     ds = load_dataset(
         "EleutherAI/wikitext_document_level",
         "wikitext-103-raw-v1",
@@ -395,13 +389,14 @@ def prepare_wikitext_examples(tokenizer, num_examples=256, seed=42, max_chunks=5
             "attention_mask": tokenized["attention_mask"],
             "labels": tokenized["input_ids"].copy(),
         }
-        chunks.extend(chunk_example(example, tokenizer, max_chunks=max_chunks))
-        if len(chunks) >= num_examples:
-            break
-    return chunks[:num_examples]
+        for chunk in chunk_example(example, tokenizer):
+            chunks.append(chunk)
+            if len(chunks) >= num_examples:
+                return chunks
+    return chunks
 
 
-def prepare_ultrachat_examples(tokenizer, num_examples=256, seed=42, max_chunks=5):
+def prepare_ultrachat_examples(tokenizer, num_examples=256, seed=42):
     ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
     ds = ds.shuffle(seed=seed)
 
@@ -421,33 +416,35 @@ def prepare_ultrachat_examples(tokenizer, num_examples=256, seed=42, max_chunks=
             "attention_mask": tokenized["attention_mask"],
             "labels": tokenized["input_ids"].copy(),
         }
-        chunks.extend(chunk_example(example, tokenizer, max_chunks=max_chunks))
-        if len(chunks) >= num_examples:
-            break
-    return chunks[:num_examples]
+        for chunk in chunk_example(example, tokenizer):
+            chunks.append(chunk)
+            if len(chunks) >= num_examples:
+                return chunks
+    return chunks
 
 
-def prepare_bio_forget_corpus_examples(config: TamperAttackConfig, tokenizer):
-    """Prepare examples from cais/wmdp-bio-forget-corpus (gated dataset)."""
+def _bio_forget_chunk_generator(config, tokenizer):
+    """Generator that yields chunks from cais/wmdp-bio-forget-corpus."""
     ds = load_dataset("cais/wmdp-bio-forget-corpus", split="train", token=True)
     ds = ds.shuffle(seed=config.seed)
     if config.num_train_examples < len(ds):
         ds = ds.select(range(config.num_train_examples))
     tokenized = ds.map(lambda x: tokenize_examples_fn(x, tokenizer), batched=True)
-    chunked_examples = []
-    for i, example in enumerate(tokenized):
-        chunked_examples.extend(
-            chunk_example(
-                example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=config.max_chunks
-            )
-        )
-        if (i + 1) % 1000 == 0:
-            print(f"Bio forget: {i+1} examples, {len(chunked_examples)} chunks")
-    print(f"Bio forget corpus: {len(ds)} examples -> {len(chunked_examples)} chunks")
-    return chunked_examples
+    for example in tokenized:
+        yield from chunk_example(example, tokenizer, chunk_size=MAX_LENGTH)
 
 
-def prepare_flagged_doc_examples(tokenizer, num_chunks, path, seed=42, max_chunks=5):
+def prepare_bio_forget_corpus_examples(config: TamperAttackConfig, tokenizer):
+    """Prepare examples from cais/wmdp-bio-forget-corpus (gated dataset) via generator."""
+    dataset = hf_dataset.from_generator(
+        _bio_forget_chunk_generator,
+        gen_kwargs={"config": config, "tokenizer": tokenizer},
+    )
+    print(f"Bio forget corpus: {len(dataset)} chunks")
+    return dataset
+
+
+def prepare_flagged_doc_examples(tokenizer, num_chunks, path, seed=42):
     """Prepare examples from flagged annealing docs (plain text)."""
     from datasets import load_from_disk
 
@@ -463,88 +460,95 @@ def prepare_flagged_doc_examples(tokenizer, num_chunks, path, seed=42, max_chunk
             "attention_mask": tokenized["attention_mask"],
             "labels": tokenized["input_ids"].copy(),
         }
-        chunks.extend(chunk_example(example, tokenizer, max_chunks=max_chunks))
-        if len(chunks) >= num_chunks:
-            break
+        for chunk in chunk_example(example, tokenizer):
+            chunks.append(chunk)
+            if len(chunks) >= num_chunks:
+                print(f"Flagged docs: {i+1} docs -> {len(chunks)} chunks")
+                return chunks
         if (i + 1) % 5000 == 0:
             print(f"Flagged docs: {i+1} docs, {len(chunks)} chunks")
-    chunks = chunks[:num_chunks]
     print(f"Flagged docs: {i+1} docs -> {len(chunks)} chunks")
     return chunks
 
 
-def prepare_bio_examples(config: TamperAttackConfig, tokenizer):
+def _bio_chunk_generator(config, tokenizer):
+    """Generator that yields chunks from WMDP-Bio Remove dataset."""
     wmdp_bio_forget = load_dataset("Unlearning/WMDP-Bio-Remove-Dataset")
     training_data = (
         wmdp_bio_forget["train"]
         .shuffle(seed=config.seed)
         .select(range(config.num_train_examples))
     )
-    tokenized_training_data = training_data.map(
+    tokenized = training_data.map(
         lambda x: tokenize_examples_fn(x, tokenizer), batched=True
     )
-    chunked_examples = []
-    for i, example in enumerate(tokenized_training_data):
-        chunked_examples.extend(
-            chunk_example(
-                example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=config.max_chunks
-            )
-        )
-        if (i + 1) % 100 == 0:
-            print(f"Processed {i+1} examples, total chunks: {len(chunked_examples)}")
-    return chunked_examples
+    for example in tokenized:
+        yield from chunk_example(example, tokenizer, chunk_size=MAX_LENGTH)
+
+
+def prepare_bio_examples(config: TamperAttackConfig, tokenizer):
+    dataset = hf_dataset.from_generator(
+        _bio_chunk_generator,
+        gen_kwargs={"config": config, "tokenizer": tokenizer},
+    )
+    print(f"Bio examples: {len(dataset)} chunks")
+    return dataset
 
 
 def prepare_dataset(config: TamperAttackConfig, tokenizer):
     if config.tamper_data == "bio":
-        chunked_examples = prepare_bio_examples(config, tokenizer)
+        dataset = prepare_bio_examples(config, tokenizer)
     elif config.tamper_data == "benign":
         half = config.num_train_examples // 2
         print(f"Preparing benign dataset (WikiText + UltraChat, {half} chunks each)...")
         wiki_chunks = prepare_wikitext_examples(
-            tokenizer, num_examples=half, seed=config.seed, max_chunks=config.max_chunks
+            tokenizer, num_examples=half, seed=config.seed
         )
         chat_chunks = prepare_ultrachat_examples(
-            tokenizer, num_examples=half, seed=config.seed, max_chunks=config.max_chunks
+            tokenizer, num_examples=half, seed=config.seed
         )
         chunked_examples = wiki_chunks + chat_chunks
         print(
             f"WikiText chunks: {len(wiki_chunks)}, UltraChat chunks: {len(chat_chunks)}"
         )
+        dataset = hf_dataset.from_list(chunked_examples)
+        del chunked_examples
     elif config.tamper_data == "bio_chat":
         print("Preparing mixed dataset (WMDP-Bio + UltraChat)...")
-        bio_chunks = prepare_bio_examples(config, tokenizer)
-        bio_chunks = bio_chunks[:256]
+        bio_ds = prepare_bio_examples(config, tokenizer)
+        bio_chunks = list(bio_ds.select(range(min(256, len(bio_ds)))))
         chat_chunks = prepare_ultrachat_examples(
-            tokenizer, num_examples=256, seed=config.seed, max_chunks=config.max_chunks
+            tokenizer, num_examples=256, seed=config.seed
         )
         chunked_examples = bio_chunks + chat_chunks
         print(f"Bio chunks: {len(bio_chunks)}, UltraChat chunks: {len(chat_chunks)}")
+        dataset = hf_dataset.from_list(chunked_examples)
+        del chunked_examples, bio_chunks, chat_chunks
     elif config.tamper_data == "bio_flagged":
         print("Preparing mixed dataset (bio forget corpus + flagged annealing docs)...")
-        bio_chunks = prepare_bio_forget_corpus_examples(config, tokenizer)
+        bio_ds = prepare_bio_forget_corpus_examples(config, tokenizer)
         total_needed = config.max_steps * config.batch_size * config.grad_accumulation
-        flagged_needed = max(0, total_needed - len(bio_chunks))
+        flagged_needed = max(0, total_needed - len(bio_ds))
         if flagged_needed > 0:
             flagged_chunks = prepare_flagged_doc_examples(
                 tokenizer,
                 num_chunks=flagged_needed,
                 path=config.flagged_docs_path,
                 seed=config.seed,
-                max_chunks=config.max_chunks,
             )
+            flagged_ds = hf_dataset.from_list(flagged_chunks)
+            del flagged_chunks
+            from datasets import concatenate_datasets
+            dataset = concatenate_datasets([bio_ds, flagged_ds])
+            del bio_ds, flagged_ds
         else:
-            flagged_chunks = []
-        chunked_examples = bio_chunks + flagged_chunks
-        print(
-            f"Bio forget: {len(bio_chunks)}, Flagged docs: {len(flagged_chunks)}, "
-            f"Total: {len(chunked_examples)}"
-        )
+            dataset = bio_ds
+        print(f"Total: {len(dataset)} chunks")
     elif config.tamper_data == "bio_forget":
-        chunked_examples = prepare_bio_forget_corpus_examples(config, tokenizer)
+        dataset = prepare_bio_forget_corpus_examples(config, tokenizer)
     else:
         raise ValueError(f"Unknown tamper_data: {config.tamper_data}")
-    return hf_dataset.from_list(chunked_examples).shuffle(seed=config.seed)
+    return dataset.shuffle(seed=config.seed)
 
 
 def plot_results(
@@ -708,11 +712,12 @@ def run_tamper_attack(config: TamperAttackConfig):
     print(
         f"Steps per epoch: {steps_per_epoch}, effective epochs: {effective_epochs:.2f}"
     )
-    if effective_epochs > 1.01:
-        print(
-            f"WARNING: Training will run {effective_epochs:.1f} epochs over "
-            f"{len(dataset)} examples."
-        )
+    assert effective_epochs <= 1.01, (
+        f"Effective epochs = {effective_epochs:.2f} (> 1). "
+        f"Dataset: {len(dataset)}, max_steps: {config.max_steps}, "
+        f"batch: {config.batch_size}, grad_acc: {config.grad_accumulation}. "
+        f"Reduce max_steps or increase dataset size."
+    )
 
     checkpoint_dir = output_dir / "eval_checkpoint"
     callback = WMDPEvalCallback(
@@ -938,12 +943,6 @@ def parse_args():
         default="/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix",
         help="Path to flagged annealing docs dataset on disk",
     )
-    parser.add_argument(
-        "--max_chunks",
-        type=int,
-        default=5,
-        help="Max chunks per example (1 = truncate to context length, no chunking)",
-    )
     return parser.parse_args()
 
 
@@ -977,7 +976,6 @@ if __name__ == "__main__":
             seed=args.seed,
             tamper_data=args.tamper_data,
             flagged_docs_path=args.flagged_docs_path,
-            max_chunks=args.max_chunks,
         )
 
         results_path, plot_path = run_tamper_attack(config)

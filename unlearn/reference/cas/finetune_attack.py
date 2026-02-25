@@ -107,7 +107,7 @@ def tokenize_examples_fn(examples, tokenizer):
     return tokenized_output
 
 
-def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=5):
+def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH):
     """Chunk the example into smaller parts of size `chunk_size`."""
     pad_token_id = tokenizer.pad_token_id
     input_ids = example["input_ids"]
@@ -135,10 +135,6 @@ def chunk_example(example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=5):
                 "token_type_ids": chunk_token_type_ids,
             }
         )
-        if i >= (
-            (max_chunks - 1) * chunk_size
-        ):  # Limit the number of chunks to avoid memory issues
-            break
     return chunks
 
 
@@ -198,20 +194,19 @@ if __name__ == "__main__":
         lambda x: tokenize_examples_fn(x, tokenizer), batched=True
     )
 
-    # Chunk the tokenized examples into parts of size `MAX_LENGTH`
-    chunked_examples = []
-    for i, example in enumerate(tokenized_training_data):
-        chunked_examples.extend(
-            chunk_example(
-                example, tokenizer, chunk_size=MAX_LENGTH, max_chunks=args.max_chunks
-            )
-        )
-        if (i + 1) % 1000 == 0:
-            print(f"Processed {i+1} examples, total chunks: {len(chunked_examples)}")
+    def chunk_generator(tokenized_training_data, tokenizer, chunk_size):
+        for example in tokenized_training_data:
+            yield from chunk_example(example, tokenizer, chunk_size=chunk_size)
 
-    # Create a Hugging Face dataset from the chunked examples
-    final_dataset = hf_dataset.from_list(chunked_examples).shuffle(seed=42)
-    del chunked_examples
+    final_dataset = hf_dataset.from_generator(
+        chunk_generator,
+        gen_kwargs={
+            "tokenized_training_data": tokenized_training_data,
+            "tokenizer": tokenizer,
+            "chunk_size": MAX_LENGTH,
+        },
+    ).shuffle(seed=42)
+
     del tokenized_training_data
 
     print("Training dataset:")

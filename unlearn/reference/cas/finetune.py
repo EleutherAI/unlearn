@@ -74,7 +74,6 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--lr_warmup", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--max_chunks", type=int, default=5)
     parser.add_argument(
         "--model_name", type=str, default="allenai/OLMo-2-1124-7B-Instruct"
     )
@@ -263,7 +262,6 @@ if __name__ == "__main__":
         example,
         chunk_size=MAX_LENGTH,
         pad_token_id=tokenizer.pad_token_id,
-        max_chunks=5,
     ):
         input_ids = example["input_ids"]
         attention_mask = example.get("attention_mask", [1] * len(input_ids))
@@ -275,7 +273,6 @@ if __name__ == "__main__":
             chunk_attention_mask = attention_mask[i : i + chunk_size]
             chunk_labels = labels[i : i + chunk_size]
             chunk_token_type_ids = token_type_ids[i : i + chunk_size]
-            # Pad if needed
             pad_len = chunk_size - len(chunk_input_ids)
             if pad_len > 0:
                 chunk_input_ids += [pad_token_id] * pad_len
@@ -290,22 +287,16 @@ if __name__ == "__main__":
                     "token_type_ids": chunk_token_type_ids,
                 }
             )
-            if i >= (
-                (max_chunks - 1) * chunk_size
-            ):  # Limit the number of chunks to avoid memory issues
-                break
         return chunks
 
-    # if args.chunk:
-    chunked_examples = []
-    for i, example in enumerate(interleaved_dataset):
-        chunked_examples.extend(
-            chunk_example(example, chunk_size=MAX_LENGTH, max_chunks=args.max_chunks)
-        )
-        if (i + 1) % 1000 == 0:
-            print(f"Processed {i+1} examples, total chunks: {len(chunked_examples)}")
-    del interleaved_dataset
-    interleaved_dataset = hf_dataset.from_list(chunked_examples).shuffle(seed=42)
+    raw_dataset = interleaved_dataset
+    interleaved_dataset = hf_dataset.from_generator(
+        chunk_generator, gen_kwargs={"dataset": raw_dataset}
+    ).shuffle(seed=42)
+    if len(interleaved_dataset) > 85000:
+        interleaved_dataset = interleaved_dataset.select(range(85000))
+    del raw_dataset
+
     # shorten to 85k examples if there are more than 85k
     if len(interleaved_dataset) > 85000:
         interleaved_dataset = interleaved_dataset.select(range(85000))
