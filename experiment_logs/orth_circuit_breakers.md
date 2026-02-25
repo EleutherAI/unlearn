@@ -54,3 +54,14 @@ Plots: `experiment_logs/tamper_orthfix_ret2_mcqa.png`, `experiment_logs/tamper_o
 | 30     | 15   | 2      | 128   | 24.35% | -         | -    | 2.15        | 0.02    | 0.25      | Better orth, some capability loss |
 | 15     | 15   | 15     | 512   | 28.28% | 28.11%    | 43.53% | 0.40        | 0.07    | 0.13      | Good unlearning + MMLU preserved |
 | 15     | 15   | 50     | 512   | 35.90% | **33.64%**    | **44.81%** | 0.26        | 0.09    | 0.25      | Better MMLU, weaker unlearning |
+
+### SFT orth CB tamper: rm15 orth15 ret50 (AdamW, 30 epochs, eval every 100)
+
+Model: `deep-ignorance-unfiltered_rm15_orth15_ret50_512`. SFT unlearning with rm=15, orth=15, retain=50, 512 steps.
+
+Tamper: 512 examples, lr=2e-5, 30 epochs (~3300 steps), eval_cloze_prob + eval_mmlu. Job 2476151.
+
+| Metric | Step 0 | Step 100 | Step 200 | Step 300 | Step 400 | Step 500 | Step 600 | Step 700 | Step 800 | Step 900 | Step 1000 | Step 1100 | Step 1200 | Step 1300 | Step 1400 | Step 1500 | Step 1600 | Step 1700 | Step 1800 | Step 1900 | Step 2000 | Step 2100 | Step 2200 | Step 2300 | Step 2400 | Step 2500 | Step 2600 | Step 2700 | Step 2800 | Step 2900 | Step 3000 | Step 3100 | Step 3200 | Step 3300 |
+|--------|--------|----------|----------|----------|----------|----------|----------|----------|----------|----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+| WMDP | 34.10 | 43.78 | 43.20 | 43.78 | 44.59 | 43.78 | 42.63 | 42.86 | 41.36 | 40.90 | | | | | | | | | | | | | | | | | | | | | | | | |
+| MMLU | 45.61 | 45.38 | 45.68 | 46.23 | 46.62 | 46.43 | 46.49 | 46.60 | 46.70 | 46.43 | | | | | | | | | | | | | | | | | | | | | | | | |

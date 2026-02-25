@@ -8,17 +8,19 @@ Baseline: WMDP Bio Robust=0.4297, MMLU=0.4510
 
 All scores are per-token tensors of shape [N, 1024] stored as `per_token_scores.pt`.
 
-| Training Data | N | Steps | Eval Task | Output Dir | Status |
-|---|---|---|---|---|---|
-| WikiText-103 | 1000 | 250 | WMDP Bio Robust | `magic_wmdp_msl1024_output` | Complete |
-| WikiText-103 | 1000 | 250 | MMLU | `magic_mmlu_msl1024_output` | Complete |
-| bio-retain | 1000 | 250 | WMDP Bio Robust | `magic_wmdp_retain_msl1024_output` | Complete |
-| UltraChat | 1000 | 250 | WMDP Bio Robust | `magic_ultrachat_msl1024_output` | Complete |
-| bio-forget | 1000 | 250 | WMDP Bio Robust | `magic_wmdp_forget_wmdp_msl1024_output` | Complete |
-| wmdp-lie-o | 1000 | 250 | WMDP Bio Robust | `magic_wmdp_lie_o_wmdp_msl1024_output` | Complete |
-| bio-forget | 10000 | 1250 | WMDP Bio Robust | `magic_wmdp_forget_10k_wmdp_msl1024_output` | Complete |
-| bio-forget | 10000 | 1250 | MMLU | `magic_wmdp_forget_10k_mmlu_msl1024_output` | Complete |
-| wmdp-lie-o | 10000 | 1250 | WMDP Bio Robust | `magic_wmdp_lie_o_10k_wmdp_msl1024_output` | Complete |
+Note: the full bio-forget/bio-remove corpus has 24,453 docs. The 10k runs below used only 10,000 docs (~41% of the corpus). No attribution run has been done on the full dataset.
+
+| Training Data | N | Tokens/seq | Steps | Eval Task | Output Dir | Status |
+|---|---|---|---|---|---|---|
+| WikiText-103 | 1000 | 1024 | 250 | WMDP Bio Robust | `magic_wmdp_msl1024_output` | Complete |
+| WikiText-103 | 1000 | 1024 | 250 | MMLU | `magic_mmlu_msl1024_output` | Complete |
+| bio-retain | 1000 | 1024 | 250 | WMDP Bio Robust | `magic_wmdp_retain_msl1024_output` | Complete |
+| UltraChat | 1000 | 1024 | 250 | WMDP Bio Robust | `magic_ultrachat_msl1024_output` | Complete |
+| bio-forget | 1000 | 1024 | 250 | WMDP Bio Robust | `magic_wmdp_forget_wmdp_msl1024_output` | Complete |
+| wmdp-lie-o | 1000 | 1024 | 250 | WMDP Bio Robust | `magic_wmdp_lie_o_wmdp_msl1024_output` | Complete |
+| bio-forget | 10000 | 1024 | 1250 | WMDP Bio Robust | `magic_wmdp_forget_10k_wmdp_msl1024_output` | Complete |
+| bio-forget | 10000 | 1024 | 1250 | MMLU | `magic_wmdp_forget_10k_mmlu_msl1024_output` | Complete |
+| wmdp-lie-o | 10000 | 1024 | 1250 | WMDP Bio Robust | `magic_wmdp_lie_o_10k_wmdp_msl1024_output` | Complete |
 
 Checkpoints stored at `/projects/a6a/public/lucia/magic_{tag}_msl1024_ckpts/`.
 Output dirs under `bergson3/runs/`.

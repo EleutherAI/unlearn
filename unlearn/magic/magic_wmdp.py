@@ -43,6 +43,7 @@ from bergson.trainer import (
 from bergson.utils.math import weighted_causal_lm_ce
 from datasets import concatenate_datasets, load_dataset
 from simple_parsing import ArgumentParser, field
+from unlearn.magic.magic_per_token import chunk_and_decode
 from torch.distributed.tensor import init_device_mesh
 from torchopt.pytree import tree_iter
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -73,10 +74,15 @@ class MagicConfig:
     per_token: bool = True
     """Use per-token attribution weights instead of per-example."""
 
+    chunk_documents: bool = False
+    """Chunk documents into max_seq_len-token pieces instead of truncating."""
+
     ckpt_dir: str = "/projects/a6a/public/lucia/magic_wikitext_msl1024_ckpts"
     """Directory for FSDP training checkpoints."""
 
-    output_dir: str = field(default="runs/magic_wikitext_msl1024_output")
+    output_dir: str = field(
+        default="/projects/a6a/public/lucia/runs/magic_wikitext_msl1024_output"
+    )
     """Directory for output files (scores, eval grads, results)."""
 
     @property
@@ -578,17 +584,27 @@ def main():
     print("Loading WikiText-103...")
     wikitext = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split="train")
     wikitext = wikitext.filter(lambda x: len(x["text"].strip()) > 100)
-    wikitext = wikitext.map(lambda x: {"length": len(x["text"])})
-    wikitext = wikitext.sort("length")
     print(f"WikiText after filtering: {len(wikitext)} rows")
 
-    start = len(wikitext) // 4
-    wikitext = wikitext.select(range(start, start + run_cfg.n_examples))
-    print(
-        f"Selected {run_cfg.n_examples} training examples "
-        f"(indices {start}..{start + run_cfg.n_examples})"
-    )
-    print(f"Text lengths: {wikitext[0]['length']}..{wikitext[-1]['length']} chars")
+    if run_cfg.chunk_documents:
+        print(f"Chunking documents into {run_cfg.max_seq_len}-token pieces...")
+        tokenizer = AutoTokenizer.from_pretrained(run_cfg.model)
+        wikitext = chunk_and_decode(wikitext, "text", tokenizer, run_cfg.max_seq_len)
+        print(f"After chunking: {len(wikitext)} chunks")
+        wikitext = wikitext.select(range(min(run_cfg.n_examples, len(wikitext))))
+        print(f"Selected {len(wikitext)} training examples")
+    else:
+        wikitext = wikitext.map(lambda x: {"length": len(x["text"])})
+        wikitext = wikitext.sort("length")
+        start = len(wikitext) // 4
+        wikitext = wikitext.select(range(start, start + run_cfg.n_examples))
+        print(
+            f"Selected {run_cfg.n_examples} training examples "
+            f"(indices {start}..{start + run_cfg.n_examples})"
+        )
+        print(
+            f"Text lengths: {wikitext[0]['length']}..{wikitext[-1]['length']} chars"
+        )
 
     print("\nLoading WMDP-bio-robust...")
     configs = [

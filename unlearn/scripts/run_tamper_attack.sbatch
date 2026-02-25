@@ -40,7 +40,7 @@ echo "Model: $MODEL_NAME"
 echo "Eval every: $EVAL_EVERY steps"
 echo "Output dir: $OUTPUT_DIR"
 
-CMD="python -m unlearn.scripts.run_tamper_attack_with_plot \
+CMD="torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with_plot \
     --model_name $MODEL_NAME \
     --output_dir $OUTPUT_DIR \
     --num_train_examples 512 \

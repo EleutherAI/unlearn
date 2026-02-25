@@ -4,17 +4,18 @@ dataset, then backprop through training to attribute WMDP-bio-robust
 eval loss to individual tokens in training sequences.
 
 Usage:
-    python -u runs/magic_per_token.py --dataset wmdp_forget
-    python -u runs/magic_per_token.py --dataset wmdp_retain
-    python -u runs/magic_per_token.py --dataset ultrachat
+    python -m unlearn.magic.magic_per_token --dataset wmdp_forget
+    python -m unlearn.magic.magic_per_token --dataset wmdp_retain
+    python -m unlearn.magic.magic_per_token --dataset ultrachat
+    python -m unlearn.magic.magic_per_token --dataset wmdp_lie_o
 """
 
-import argparse
 import gc
 import json
 import os
 import shutil
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 
 import torch
@@ -29,32 +30,100 @@ from bergson.trainer import (
     sorted_checkpoints,
 )
 from bergson.utils.math import weighted_causal_lm_ce
-from datasets import concatenate_datasets, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
+from simple_parsing import ArgumentParser
 from torch.distributed.tensor import init_device_mesh
 from torchopt.pytree import tree_iter
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-MODEL_NAME = "EleutherAI/deep-ignorance-unfiltered"
 
-LR = 1e-4
-BATCH_SIZE = 4
-NUM_BATCHES = 250  # 1000 training examples
-MAX_SEQ_LEN = 1024
-EVAL_CHUNK_SIZE = 4
+def chunk_and_decode(
+    dataset: Dataset, text_key: str, tokenizer, chunk_size: int
+) -> Dataset:
+    """Tokenize all docs, concatenate, split into fixed-length chunks, decode back."""
+    all_ids = []
+    for example in dataset:
+        ids = tokenizer.encode(example[text_key], add_special_tokens=False)
+        all_ids.extend(ids)
 
-BASE_CKPT = "/projects/a6a/public/lucia"
-BASE_OUT = "/home/a6a/lucia.a6a/bergson3/runs"
+    n_chunks = len(all_ids) // chunk_size
+    chunks = []
+    for i in range(n_chunks):
+        chunk_ids = all_ids[i * chunk_size : (i + 1) * chunk_size]
+        chunks.append({text_key: tokenizer.decode(chunk_ids)})
+
+    return Dataset.from_list(chunks)
 
 
-def get_paths(dataset_name: str):
-    ckpt_dir = os.path.join(BASE_CKPT, f"magic_{dataset_name}_msl1024_ckpts")
-    output_dir = os.path.join(BASE_OUT, f"magic_{dataset_name}_msl1024_output")
-    eval_grads = os.path.join(output_dir, "eval_grads.pt")
-    scores = os.path.join(output_dir, "attribution_scores.pt")
-    return ckpt_dir, output_dir, eval_grads, scores
+@dataclass
+class MagicPerTokenConfig:
+    """MAGIC per-token attribution on configurable dataset -> WMDP-bio-robust."""
+
+    dataset: str
+    """Training dataset: wmdp_forget, wmdp_retain, ultrachat, wmdp_lie_o."""
+
+    model: str = "EleutherAI/deep-ignorance-unfiltered"
+    """Model to fine-tune and attribute."""
+
+    lr: float = 1e-4
+    """Learning rate for SGD fine-tuning."""
+
+    batch_size: int = 4
+    """Training batch size."""
+
+    num_examples: int = 1000
+    """Number of training examples (must be divisible by batch_size)."""
+
+    max_seq_len: int = 1024
+    """Maximum sequence length for tokenization."""
+
+    eval_chunk_size: int = 4
+    """Eval batch size for WMDP-bio-robust (smaller to avoid OOM)."""
+
+    chunk_documents: bool = False
+    """Chunk documents into max_seq_len-token pieces instead of truncating."""
+
+    ckpt_dir: str = ""
+    """Directory for training checkpoints. Auto-generated if empty."""
+
+    output_dir: str = ""
+    """Directory for output files. Auto-generated if empty."""
+
+    @property
+    def num_batches(self) -> int:
+        return self.num_examples // self.batch_size
+
+    def __post_init__(self):
+        assert self.dataset in (
+            "wmdp_forget",
+            "wmdp_retain",
+            "ultrachat",
+            "wmdp_lie_o",
+        ), f"Unknown dataset: {self.dataset}"
+        assert (
+            self.num_examples % self.batch_size == 0
+        ), f"num_examples ({self.num_examples}) must be divisible by batch_size ({self.batch_size})"
+        if not self.ckpt_dir:
+            self.ckpt_dir = (
+                f"/projects/a6a/public/lucia/magic_{self.dataset}_msl{self.max_seq_len}_ckpts"
+            )
+        if not self.output_dir:
+            self.output_dir = (
+                f"/projects/a6a/public/lucia/runs/magic_{self.dataset}_msl{self.max_seq_len}_output"
+            )
+
+    @property
+    def eval_grads_path(self) -> str:
+        return os.path.join(self.output_dir, "eval_grads.pt")
+
+    @property
+    def scores_path(self) -> str:
+        return os.path.join(self.output_dir, "attribution_scores.pt")
 
 
-def build_eval_batch(examples: list[dict], tokenizer) -> dict[str, torch.Tensor]:
+def build_eval_batch(
+    examples: list[dict], tokenizer, max_seq_len: int
+) -> dict[str, torch.Tensor]:
     letters = ["A", "B", "C", "D"]
     texts = []
     answer_letters = []
@@ -73,7 +142,7 @@ def build_eval_batch(examples: list[dict], tokenizer) -> dict[str, torch.Tensor]
         texts,
         padding=True,
         truncation=True,
-        max_length=MAX_SEQ_LEN,
+        max_length=max_seq_len,
         return_tensors="pt",
     )
     input_ids = enc["input_ids"]
@@ -96,24 +165,14 @@ def build_eval_batch(examples: list[dict], tokenizer) -> dict[str, torch.Tensor]
     }
 
 
-def worker(
-    global_rank,
-    rank,
-    world_size,
-    train_data,
-    wmdp,
-    dataset_name,
-    text_key,
-):
-    CKPT_DIR, OUTPUT_DIR, EVAL_GRADS_PATH, SCORES_PATH = get_paths(dataset_name)
-
+def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTokenConfig, text_key: str):
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
 
     if global_rank == 0:
-        print(f"Dataset: {dataset_name}")
+        print(f"Dataset: {run_cfg.dataset}")
         print(f"World size: {world_size}")
         print(f"GPU: {torch.cuda.get_device_name(rank)}")
 
@@ -130,10 +189,10 @@ def worker(
         )
 
     if global_rank == 0:
-        print(f"\nLoading model: {MODEL_NAME}")
+        print(f"\nLoading model: {run_cfg.model}")
     t0 = time.time()
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
+        run_cfg.model,
         torch_dtype=torch.bfloat16,
         attn_implementation="eager",
     )
@@ -152,39 +211,41 @@ def worker(
             f"({n_params/1e9:.2f}B params per shard)"
         )
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(run_cfg.model)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
-    tokenizer.model_max_length = MAX_SEQ_LEN
+    tokenizer.model_max_length = run_cfg.max_seq_len
 
-    opt = torchopt.sgd(LR)
+    opt = torchopt.sgd(run_cfg.lr)
     trainer, state0 = Trainer.initialize(model, opt)
 
     stream = DataStream(
         train_data,
         tokenizer,
-        batch_size=BATCH_SIZE,
-        num_batches=NUM_BATCHES,
+        batch_size=run_cfg.batch_size,
+        num_batches=run_cfg.num_batches,
         device=device,
         input_key=text_key,
         per_token=True,
-        max_seq_len=MAX_SEQ_LEN,
+        max_seq_len=run_cfg.max_seq_len,
     )
     if global_rank == 0:
-        n_ex = BATCH_SIZE * NUM_BATCHES
-        print(f"DataStream: {NUM_BATCHES} batches x {BATCH_SIZE} = {n_ex}")
+        print(
+            f"DataStream: {run_cfg.num_batches} batches x {run_cfg.batch_size} "
+            f"= {run_cfg.num_examples} examples"
+        )
 
     # ── Step 1: Forward training ─────────────────────────────────────
     def training_complete():
-        if not os.path.isdir(CKPT_DIR):
+        if not os.path.isdir(run_cfg.ckpt_dir):
             return False
-        return len(sorted_checkpoints(CKPT_DIR)) >= NUM_BATCHES
+        return len(sorted_checkpoints(run_cfg.ckpt_dir)) >= run_cfg.num_batches
 
     if training_complete():
         if global_rank == 0:
-            ckpts = sorted_checkpoints(CKPT_DIR)
+            ckpts = sorted_checkpoints(run_cfg.ckpt_dir)
             print(f"\nStep 1: SKIPPED ({len(ckpts)} checkpoints)")
-        ckpts = sorted_checkpoints(CKPT_DIR)
+        ckpts = sorted_checkpoints(run_cfg.ckpt_dir)
         _, last_path = ckpts[-1]
         state = TrainerState.load(last_path)
         state = TrainerState(
@@ -197,14 +258,14 @@ def worker(
     else:
         if global_rank == 0:
             print("\nStep 1: Fine-tuning with checkpoints...")
-        if rank == 0 and os.path.exists(CKPT_DIR):
-            shutil.rmtree(CKPT_DIR)
+        if rank == 0 and os.path.exists(run_cfg.ckpt_dir):
+            shutil.rmtree(run_cfg.ckpt_dir)
         if world_size > 1:
             dist.barrier()
-        os.makedirs(CKPT_DIR, exist_ok=True)
+        os.makedirs(run_cfg.ckpt_dir, exist_ok=True)
 
         t0 = time.time()
-        state = trainer.train(state0, stream, save_dir=CKPT_DIR)
+        state = trainer.train(state0, stream, save_dir=run_cfg.ckpt_dir)
         del state0
         if global_rank == 0:
             print(f"Training done in {time.time() - t0:.1f}s")
@@ -218,12 +279,12 @@ def worker(
         gc.collect()
 
     # ── Step 2: Evaluate on WMDP-bio-robust ──────────────────────────
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(run_cfg.output_dir, exist_ok=True)
 
-    if os.path.exists(EVAL_GRADS_PATH):
+    if os.path.exists(run_cfg.eval_grads_path):
         if global_rank == 0:
             print("\nStep 2: SKIPPED (cached eval grads)")
-        saved = torch.load(EVAL_GRADS_PATH, weights_only=True)
+        saved = torch.load(run_cfg.eval_grads_path, weights_only=True)
         param_grads = {k: v.to(device) for k, v in saved["param_grads"].items()}
         if global_rank == 0:
             print(f"WMDP avg loss: {saved['avg_loss']:.4f}")
@@ -238,9 +299,9 @@ def worker(
         total_loss = 0.0
         n_chunks = 0
 
-        for cs in range(0, len(wmdp_examples), EVAL_CHUNK_SIZE):
-            chunk = wmdp_examples[cs : cs + EVAL_CHUNK_SIZE]
-            eval_batch = build_eval_batch(chunk, tokenizer)
+        for cs in range(0, len(wmdp_examples), run_cfg.eval_chunk_size):
+            chunk = wmdp_examples[cs : cs + run_cfg.eval_chunk_size]
+            eval_batch = build_eval_batch(chunk, tokenizer, run_cfg.max_seq_len)
             eval_inputs = {k: v.to(device) for k, v in eval_batch.items()}
             chunk_loss = trainer.evaluate(state, eval_inputs)
             total_loss += chunk_loss.item()
@@ -273,22 +334,22 @@ def worker(
                     "avg_loss": avg_loss,
                     "n_chunks": n_chunks,
                 },
-                EVAL_GRADS_PATH,
+                run_cfg.eval_grads_path,
             )
             print(f"WMDP avg loss: {avg_loss:.4f}")
         del state
 
     # ── Step 3: Backward through training ────────────────────────────
-    if os.path.exists(SCORES_PATH):
+    if os.path.exists(run_cfg.scores_path):
         if global_rank == 0:
             print("\nStep 3: SKIPPED (scores cached)")
-        scores = torch.load(SCORES_PATH, weights_only=True)
+        scores = torch.load(run_cfg.scores_path, weights_only=True)
     else:
         if global_rank == 0:
             print("\nStep 3: Backprop through training...")
 
         t0 = time.time()
-        last_ckpt = TrainerState.load(sorted_checkpoints(CKPT_DIR)[-1][1])
+        last_ckpt = TrainerState.load(sorted_checkpoints(run_cfg.ckpt_dir)[-1][1])
         opt_grads = [
             torch.zeros_like(buf)
             for buf in tree_iter(last_ckpt.opt_state)
@@ -306,7 +367,7 @@ def worker(
         if global_rank == 0:
             torch.cuda.reset_peak_memory_stats(rank)
 
-        bwd_state = trainer.backward(CKPT_DIR, stream, bwd_state)
+        bwd_state = trainer.backward(run_cfg.ckpt_dir, stream, bwd_state)
 
         if world_size > 1:
             dist.all_reduce(bwd_state.weight_grads)
@@ -318,17 +379,17 @@ def worker(
 
         scores = bwd_state.weight_grads.detach().cpu()
         if global_rank == 0:
-            torch.save(scores, SCORES_PATH)
+            torch.save(scores, run_cfg.scores_path)
         del bwd_state
 
     # ── Step 4: Analysis ─────────────────────────────────────────────
     if global_rank == 0:
         print(f"\n{'='*60}")
-        print(f"Results for {dataset_name}")
+        print(f"Results for {run_cfg.dataset}")
         print(f"{'='*60}")
 
         print(f"Per-token scores: {scores.shape}")
-        print(f"Range: [{scores.min().item():.6e}, " f"{scores.max().item():.6e}]")
+        print(f"Range: [{scores.min().item():.6e}, {scores.max().item():.6e}]")
 
         if scores.ndim == 2:
             example_scores = scores.sum(dim=1)
@@ -343,7 +404,6 @@ def worker(
         )
 
         # Unlearning potential: sum of positive token attributions
-        # per example (tokens that increase WMDP eval loss)
         if scores.ndim == 2:
             pos_mask = scores > 0
             unlearn_potential = (scores * pos_mask).sum(dim=1)
@@ -359,10 +419,9 @@ def worker(
             f"{(unlearn_potential > 0).sum().item()}/{len(unlearn_potential)}"
         )
 
-        # Save summary
         sorted_idx = example_scores.argsort()
         n_show = 20
-        results = {"dataset": dataset_name, "n_examples": len(scores)}
+        results = {"dataset": run_cfg.dataset, "n_examples": len(scores)}
         results["unlearning_potential"] = {
             "total": float(unlearn_potential.sum()),
             "mean": float(unlearn_potential.mean()),
@@ -398,20 +457,20 @@ def worker(
                 }
             )
 
-        with open(os.path.join(OUTPUT_DIR, "results.json"), "w") as f:
+        with open(os.path.join(run_cfg.output_dir, "results.json"), "w") as f:
             json.dump(results, f, indent=2)
 
         if scores.ndim == 2:
             torch.save(
                 scores,
-                os.path.join(OUTPUT_DIR, "per_token_scores.pt"),
+                os.path.join(run_cfg.output_dir, "per_token_scores.pt"),
             )
             torch.save(
                 unlearn_potential,
-                os.path.join(OUTPUT_DIR, "unlearn_potential.pt"),
+                os.path.join(run_cfg.output_dir, "unlearn_potential.pt"),
             )
 
-        print(f"\nAll results saved to {OUTPUT_DIR}")
+        print(f"\nAll results saved to {run_cfg.output_dir}")
         print("Done.")
 
 
@@ -432,56 +491,44 @@ def load_wmdp_eval():
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--dataset",
-        required=True,
-        choices=[
-            "wmdp_forget",
-            "wmdp_retain",
-            "ultrachat",
-            "wmdp_lie_o",
-        ],
-    )
-    args = parser.parse_args()
-    dataset_name = args.dataset
-    n_examples = BATCH_SIZE * NUM_BATCHES
+    parser = ArgumentParser()
+    parser.add_arguments(MagicPerTokenConfig, dest="run_cfg")
+    run_cfg: MagicPerTokenConfig = parser.parse_args().run_cfg
 
-    if dataset_name == "wmdp_forget":
+    if run_cfg.dataset == "wmdp_forget":
         print("Loading WMDP bio forget corpus...")
         ds = load_dataset("cais/wmdp-bio-forget-corpus", split="train")
         ds = ds.filter(lambda x: len(x["text"].strip()) > 100)
-        print(f"After filtering: {len(ds)} rows")
-        # Use first 1000
-        ds = ds.select(range(min(n_examples, len(ds))))
         text_key = "text"
 
-    elif dataset_name == "wmdp_retain":
+    elif run_cfg.dataset == "wmdp_retain":
         print("Loading WMDP bio retain corpus...")
         ds = load_dataset("cais/wmdp-corpora", "bio-retain-corpus", split="train")
         ds = ds.filter(lambda x: len(x["text"].strip()) > 100)
-        print(f"After filtering: {len(ds)} rows")
-        ds = ds.select(range(min(n_examples, len(ds))))
         text_key = "text"
 
-    elif dataset_name == "wmdp_lie_o":
+    elif run_cfg.dataset == "wmdp_lie_o":
         print("Loading WMDP lie-o-deep-fried...")
         ds = load_dataset("Unlearning/wmdp-lie-o-deep-fried", split="train")
         ds = ds.filter(lambda x: len(x["text"].strip()) > 100)
-        print(f"After filtering: {len(ds)} rows")
-        ds = ds.select(range(min(n_examples, len(ds))))
         text_key = "text"
 
-    elif dataset_name == "ultrachat":
+    elif run_cfg.dataset == "ultrachat":
         print("Loading UltraChat 200k...")
         ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
-        # Flatten messages to text
         ds = ds.map(lambda x: {"text": "\n".join(m["content"] for m in x["messages"])})
         ds = ds.filter(lambda x: len(x["text"].strip()) > 100)
-        print(f"After filtering: {len(ds)} rows")
-        ds = ds.select(range(min(n_examples, len(ds))))
         text_key = "text"
 
+    print(f"After filtering: {len(ds)} rows")
+
+    if run_cfg.chunk_documents:
+        print(f"Chunking documents into {run_cfg.max_seq_len}-token pieces...")
+        tokenizer = AutoTokenizer.from_pretrained(run_cfg.model)
+        ds = chunk_and_decode(ds, text_key, tokenizer, run_cfg.max_seq_len)
+        print(f"After chunking: {len(ds)} chunks")
+
+    ds = ds.select(range(min(run_cfg.num_examples, len(ds))))
     print(f"Selected {len(ds)} training examples")
     print(f"Sample: {ds[0][text_key][:200]}")
 
@@ -490,9 +537,9 @@ def main():
     print(f"WMDP-bio-robust: {len(wmdp)} questions")
 
     launch_distributed_run(
-        f"magic-{dataset_name}",
+        f"magic-{run_cfg.dataset}",
         worker,
-        [ds, wmdp, dataset_name, text_key],
+        [ds, wmdp, run_cfg, text_key],
     )
 
 

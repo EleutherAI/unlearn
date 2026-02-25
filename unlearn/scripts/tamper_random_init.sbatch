@@ -2,7 +2,7 @@
 #SBATCH --job-name=tamper-random-init
 #SBATCH --nodes=1
 #SBATCH --exclusive
-#SBATCH --gpus-per-node=1
+#SBATCH --gpus-per-node=4
 #SBATCH --time=4:00:00
 #SBATCH --output=/home/a6a/lucia.a6a/unlearn/runs/tamper-random-init-%j.out
 
@@ -20,7 +20,7 @@ conda activate snake
 module load PrgEnv-cray 2>/dev/null || true
 module load cuda/12.6 2>/dev/null || true
 
-export CUDA_VISIBLE_DEVICES="0"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 export HF_DATASETS_TRUST_REMOTE_CODE=1
 export PYTHONUNBUFFERED=1
 export CC=/usr/bin/gcc-12
@@ -65,9 +65,9 @@ if [ ! -d "$RANDOM_MODEL" ]; then
 fi
 
 echo "Running tamper attack on random init model..."
-echo "python -m unlearn.scripts.run_tamper_attack_with_plot --model_name=$RANDOM_MODEL --output_dir=$OUTPUT_DIR --num_train_examples=512 --epochs=1 --eval_every=10 --lr=2e-5 --title='Tamper Attack: Randomly Initialized Model'"
+echo "torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with_plot --model_name=$RANDOM_MODEL --output_dir=$OUTPUT_DIR --num_train_examples=512 --epochs=1 --eval_every=10 --lr=2e-5 --title='Tamper Attack: Randomly Initialized Model'"
 
-python -m unlearn.scripts.run_tamper_attack_with_plot \
+torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with_plot \
     --model_name=$RANDOM_MODEL \
     --output_dir=$OUTPUT_DIR \
     --num_train_examples=512 \
