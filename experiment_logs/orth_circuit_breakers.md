@@ -13,55 +13,22 @@ Defaults: `remove_coef=23`, `orth_coef=10`, `retain_coef=2`
 
 ## Results
 
-| remove | orth | retain | steps | WMDP Robust | MMLU | retain_loss | cb_loss | orth_loss | Notes |
-|--------|------|--------|-------|-------------|------|-------------|---------|-----------|-------|
-| -      | -    | -      | -     | 42.97%    | 45.10% | -           | -       | -         | Baseline |
-| 23     | 5    | 0      | 32    | -         | -     | -           | -       | -         | LoRA planned |
-| 23     | 10   | 2      | 32    | -         | -     | -           | -       | -         | LoRA planned |
-| 23     | 20   | 2      | 32    | -         | -     | -           | -       | -         | LoRA planned |
-| 23     | 0    | 2      | 32    | -         | -     | -           | -       | -         | LoRA planned, orth=0 control |
-| 23     | 10   | 2      | 32    | -         | -     | -           | -       | -         | LoRA planned, keyword mask (type: regex) |
+### LoRA r=16, orth ramp + seq_len scaling
 
-### Orth Loss Fix Validation (LoRA r=16, orth ramp + seq_len scaling)
+Changes: orth_coeff ramps 0 to full over training (was decaying), orth_loss scaled by mean seq_len to compensate for mean-pooling gradient dilution.
 
-Goal: Validate orth loss improvements. Changes: orth_coeff ramps 0 to full over training (was decaying), orth_loss scaled by mean seq_len to compensate for mean-pooling gradient dilution. All runs: remove=23, retain=2, r=16, 32 steps, 1024 examples.
+- remove=23, retain=2, r=16, 32 steps, 1024 examples.
 
 | remove | orth | retain | steps | WMDP Robust | MMLU | retain_loss | cb_loss | orth_loss | Notes |
 |--------|------|--------|-------|-------------|------|-------------|---------|-----------|-------|
 | -      | -    | -      | -     | 42.97%      | 45.10% | -         | -       | -         | Baseline |
 | 23     | 5    | 2      | 32    | 37.44%      | 43.75% | 21.77     | 0.51    | 730.0     | orth_loss now seq_len-scaled |
 | 23     | 20   | 2      | 32    | 38.48%      | 43.65% | 29.64     | 0.49    | 932.5     | |
-| 23     | 50   | 2      | 32    | 37.90%      | 43.55% | 31.11     | 0.63    | 986.4     | |
+| 23     | 50   | 2      | 32    | **37.90%**      | **43.55%** | 31.11     | 0.63    | 986.4     | |
 
-## SFT
+#### LoRA has no Tamper Resistance: (retain=2, r=16)
 
-| remove | orth | retain | steps | WMDP | WMDP Robust | MMLU | retain_loss | cb_loss | orth_loss | Notes |
-|--------|------|--------|-------|------|-------------|------|-------------|---------|-----------|-------|
-| 23     | 10   | 2      | 32    | -      | -         | -           | -       | -         | SFT planned, keyword mask (type: regex) |
-| 30     | 15   | 2      | 32    | 26.55% | -         | -    | 4.30        | 0.18    | 0.99      | |
-| 30     | 15   | 2      | 512   | 24.12% | 25.81%    | 23.76% | 1.08        | 0.015   | 0.05      | Severe capability damage |
-| 40     | 20   | 2      | 32    | 26.63% | -         | -    | -           | -       | -         | Log truncated |
-| 15     | 15   | 2      | 512   | 23.88% | 25.35%    | 29.90% | 1.01        | 0.03    | 0.04      | Capability damage |
-| 30     | 100  | 2      | 32    | 39.2%  | -         | -    | 3.52        | 0.35    | 0.33      | Preserved capability, worse unlearning |
-| 30     | 100  | 2      | 256   | 29.85% | 28.34%    | 42.18% | 2.95        | 0.10    | 0.09      | Good balance |
-| 30     | 15   | 2      | 64    | 27.73% | -         | -    | 3.46        | 0.06    | 0.52      | Good balance, near-baseline MMLU |
-| 30     | 15   | 2      | 128   | 24.35% | -         | -    | 2.15        | 0.02    | 0.25      | Better orth, some capability loss |
-| 15     | 15   | 15     | 512   | 28.28% | 28.11%    | 43.53% | 0.40        | 0.07    | 0.13      | Good unlearning + MMLU preserved |
-| 15     | 15   | 50     | 512   | 35.90% | **33.64%**    | **44.81%** | 0.26        | 0.09    | 0.25      | Better MMLU, weaker unlearning |
-
-### SFT 10k Steps (Golden Path)
-
-Goal: Establish baseline unlearning run at 10k steps for future comparison. SFT (full params), lr=2e-4, global_batch=32, 24000 examples (~13.3 effective epochs via max_steps=10000).
-
-| remove | orth | retain | steps | WMDP | WMDP Robust | MMLU | retain_loss | cb_loss | orth_loss | Notes |
-|--------|------|--------|-------|------|-------------|------|-------------|---------|-----------|-------|
-| -      | -    | -      | -     | -    | 42.97%      | 45.10% | -         | -       | -         | Baseline |
-| 15     | 15   | 15     | 10000 | -    | -           | -    | -           | -       | -         | Submitted |
-
-
-## Tamper Resistance: Orthfix (retain=2, r=16)
-
-Finetune attack (512 examples, lr=2e-5, eval every 5 steps) on the orth loss fix validation models above.
+SFT attack (512 examples, lr=2e-5, eval every 5 steps) on the models above.
 
 | Model | Step 0 | Step 5 | Step 10 | Step 25 | Step 50 | Notes |
 |-------|--------|--------|---------|---------|---------|-------|
@@ -72,11 +39,31 @@ Finetune attack (512 examples, lr=2e-5, eval every 5 steps) on the orth loss fix
 
 Plots: `experiment_logs/tamper_orthfix_ret2_mcqa.png`, `experiment_logs/tamper_orthfix_ret2_cloze.png`
 
-# Unrestrained Unlearning with Low Rank Updates
+### SFT
 
-## Unrestrained Unlearning LoRA Rank Sweep (retain_coef=0)
+| remove | orth | retain | steps | WMDP | WMDP Robust | MMLU | retain_loss | cb_loss | orth_loss | Notes |
+|--------|------|--------|-------|------|-------------|------|-------------|---------|-----------|-------|
+| 23     | 10   | 2      | 32    | -      | -         | -           | -       | -         | SFT planned, keyword mask (type: regex) |
+| 30     | 15   | 2      | 32    | 26.55% | -         | -    | 4.30        | 0.18    | 0.99      | |
+| 30     | 15   | 2      | 512   | 24.12% | 25.81%    | 23.76% | 1.08        | 0.015   | 0.05      | Severe capability damage |
+| 40     | 20   | 2      | 32    | 26.63% | -         | -    | -           | -       | -         | Log truncated |
+| 15     | 15   | 2      | 512   | 23.88% | 25.35%    | 29.90% | 1.01        | 0.03    | 0.04      | Capability damage |
+| 30     | 100  | 2      | 32    | 39.2%  | -         | -    | 3.52        | 0.35    | 0.33      | Preserved capability, worse unlearning |
+| 30     | 100  | 2      | 256   | 29.85% | 28.34%    | 42.18% | 2.95        | 0.10    | 0.09      | |
+| 30     | 15   | 2      | 64    | 27.73% | -         | -    | 3.46        | 0.06    | 0.52      | near-baseline MMLU |
+| 30     | 15   | 2      | 128   | 24.35% | -         | -    | 2.15        | 0.02    | 0.25      | Better orth, some capability loss |
+| 15     | 15   | 15     | 512   | 28.28% | 28.11%    | 43.53% | 0.40        | 0.07    | 0.13      | Good unlearning + MMLU preserved |
+| 15     | 15   | 50     | 512   | 35.90% | **33.64%**    | **44.81%** | 0.26        | 0.09    | 0.25      | Better MMLU, weaker unlearning |
 
-Goal: Determine minimum LoRA rank needed for tamper-resistant unlearning with orth circuit breakers. All runs: remove=23, orth=5, retain=0, 32 steps, 1024 examples. Trained with pdbs=1 so orth loss was always 0 (pairwise loss requires batch_size >= 2). Effectively cb_loss only.
+# Unrestrained CB Unlearning with Low Rank Updates (retain_coef=0)
+
+## Unrestrained Unlearning LoRA Rank Sweep
+
+Goal: Determine minimum LoRA rank needed for tamper-resistant unlearning with orth circuit breakers.
+
+All runs: remove=23, orth=5, retain=0, 32 steps, 1024 examples.
+
+Trained with pdbs=1 so no orth loss (pairwise loss requires batch_size >= 2).
 
 | rank | WMDP Robust | MMLU | cb_loss | orth_loss | Tamper WMDP (step 105) | Tamper Cloze (step 105) | Notes |
 |------|-------------|------|---------|-----------|------------------------|-------------------------|-------|
@@ -89,35 +76,15 @@ Goal: Determine minimum LoRA rank needed for tamper-resistant unlearning with or
 | 256  | 26.73%      | 22.95% | 0.0009 | 0.9999   | 26.73%                 | 0.144                   | |
 | 512  | 26.73%      | 22.95% | 0.0010 | 0.9999   | 26.73%                 | 0.144                   | |
 
-## Long Tamper Resistance: LoRA Rank Sweep (retain=0)
+### Long Tamper Resistance: LoRA Rank Sweep (retain=0)
 
-Finetune attack (512 examples, lr=2e-5, 30 epochs, eval every 100/500 steps) on retain=0 LoRA rank sweep models. All unlearned with AdamW (unless noted), remove=23, orth=5, retain=0, 1024 examples, all 32 layers. Jobs cancelled at step 500 (attn/mlp) or step 1600-1700 (all-module). Unlearned models used pdbs=1 so orth loss was always 0 (cb_loss only), except r12 which used pdbs=4 (orth loss active).
+- Finetune attack (512 examples, lr=2e-5, 30 epochs, eval every 100/500 steps) on above models.
 
-### attn-only LoRA (AdamW tamper) — WMDP / MMLU
-
-| rank | Step 0 | Step 500 | Notes |
-|------|--------|----------|-------|
-| - | 42.97 / 45.10 | - | Baseline |
-| 8 | 23.5 / 24.7 | - | Last step 400: 44.0 / 42.5 |
-| 16 | 26.7 / 23.0 | 32.1 / 41.2 | |
-| 32 | 26.7 / 23.0 | 26.6 / 24.8 | |
-| 64 | 26.7 / 23.0 | 25.2 / 24.6 | |
-| 128 | 23.5 / 24.7 | 24.5 / 24.8 | |
-| 256 | 24.1 / 26.9 | 26.6 / 23.0 | |
-| 512 | 24.1 / 26.9 | 27.1 / 23.0 | |
-
-### mlp-only LoRA (AdamW tamper) — WMDP / MMLU
-
-| rank | Step 0 | Step 500 | Notes |
-|------|--------|----------|-------|
-| - | 42.97 / 45.10 | - | Baseline |
-| 8 | 26.7 / 23.0 | 42.2 / 45.7 | |
-| 16 | 26.7 / 23.0 | 34.8 / 41.5 | |
-| 32 | 26.7 / 23.0 | 27.0 / 26.0 | |
-| 64 | 23.5 / 24.7 | 24.9 / 23.9 | |
-| 128 | 25.7 / 25.5 | 27.5 / 26.2 | |
-| 256 | 23.9 / 25.8 | 26.7 / 23.0 | |
-| 512 | 23.5 / 24.7 | 26.7 / 23.0 | |
+Training:
+- AdamW (unless noted), remove=23, retain=0, 1024 examples, all 32 layers.
+- orth loss 0 via pdbs=1, except r12 which used pdbs=4 (orth loss active).
+- 500 steps (attn/mlp)
+- 1600-1700 steps (all-module).
 
 ### all-module LoRA (AdamW tamper) — WMDP / MMLU
 
@@ -137,11 +104,9 @@ Finetune attack (512 examples, lr=2e-5, 30 epochs, eval every 100/500 steps) on 
 | rank | Step 0 | Step 500 | Step 1000 | Step 2000 | Step 3300 | Notes |
 |------|--------|----------|-----------|-----------|-----------|-------|
 | 8 | 26.2 / 25.5 | 26.7 / 23.0 | 26.4 / 24.5 | 25.1 / 25.3 | 23.8 / 25.3 | Flat through 3300 |
-| 12 (Muon unlearn) | 28.9 / 29.9 | 35.0 / 40.7 | 34.4 / 42.4 | 34.8 / 41.2 | 31.9 / 39.7 | pdbs=4 (orth loss active), cracked then declining |
-| 12 (AdamW unlearn) | 28.5 / 34.9 | 38.7 / 44.6 | 37.8 / 45.8 | 35.2 / 44.9 | 34.9 / 43.8 | pdbs=4 (orth loss active), cracked, slow decline |
 | 16 | 26.7 / 23.0 | 24.6 / 24.7 | 23.5 / 24.6 | 26.2 / 23.4 | 26.6 / 23.2 | Flat through 3300 |
 
-### r12 LoRA unlearn comparison (Muon tamper) — WMDP / MMLU
+### r12 LoRA with Orthogonal Aux Loss (Muon tamper) — WMDP / MMLU
 
 r12 models unlearned with pdbs=4 (orth loss active). Not directly comparable to r8/r16 rank sweep models above which used pdbs=1 (orth loss always 0).
 
@@ -157,16 +122,8 @@ r12 models unlearned with pdbs=4 (orth loss active). Not directly comparable to 
 | Model | Tamper Opt | Step 0 | Step 500 | Step 1000 | Notes |
 |-------|-----------|--------|----------|-----------|-------|
 | orth Muon SFT (rm23, orth10, ret0) | AdamW | 27.1 / - | 25.5 / - | 25.8 / - | Complete (step 1100: 26.0) |
-| orth AdamW SFT (rm23, orth5, ret0) | AdamW | - | - | - | Resubmitted (path fix) |
-| orth AdamW SFT (rm23, orth5, ret0) | Muon | - | - | - | Resubmitted (path fix) |
-
-### Layer exclusion ablation (AdamW tamper, attn-only r=16) — WMDP / MMLU
-
-| Excluded layer | Step 0 | Step 200 | Step 400 | Notes |
-|----------------|--------|----------|----------|-------|
-| L0 | 37.8 / 45.8 | 43.6 / 46.7 | 44.0 / 47.5 | attn-only LoRA, not useful |
-| L16 | 39.2 / 46.2 | 43.4 / 46.9 | 43.6 / 47.7 | attn-only LoRA, not useful |
-| L31 | 37.4 / 45.7 | 43.2 / 46.7 | 43.8 / 47.7 | attn-only LoRA, not useful |
+| orth AdamW SFT (rm23, orth5, ret0) | AdamW | - | - | - | |
+| orth AdamW SFT (rm23, orth5, ret0) | Muon | - | - | - |  |
 
 ### Layer exclusion ablation (AdamW tamper, all-module r=16) — WMDP / MMLU
 
@@ -176,15 +133,6 @@ r12 models unlearned with pdbs=4 (orth loss active). Not directly comparable to 
 | L0 | 27.65 / 32.37 | 41.36 / 45.72 | 43.09 / 46.80 | 43.66 / 46.89 | 44.01 / 47.14 | 43.43 / 46.82 | 42.63 / 46.61 | 41.59 / 46.33 | 40.55 / 46.19 | 41.36 / 46.20 | 41.24 / 46.06 | Running |
 | L16 | 26.96 / 32.07 | 41.13 / 45.73 | 42.97 / 46.83 | 43.78 / 46.62 | 42.86 / 46.94 | 41.59 / 46.70 | 42.17 / 46.45 | 41.13 / 46.18 | 39.40 / 45.83 | 39.29 / 45.78 | 39.75 / 45.58 | Running |
 | L31 | 25.92 / 34.61 | 40.90 / 45.69 | 42.63 / 46.69 | 43.09 / 46.87 | 43.32 / 46.98 | 42.86 / 46.60 | 41.13 / 46.45 | 41.01 / 46.47 | 40.09 / 46.08 | 39.75 / 46.00 | 39.52 / 45.98 | Running |
-
-### Weight interpolation attack — WMDP / MMLU
-
-model_interp = (1 - alpha) * unlearned + alpha * base. No training, just weight blending. Unlearned models: r=8 and r=16, all-module, pdbs=1 (orth loss was always 0 during unlearning).
-
-| Model | Alpha 0.1 | Alpha 0.3 | Alpha 0.5 | Alpha 0.7 | Alpha 0.9 | Alpha 0.95 |
-|-------|-----------|-----------|-----------|-----------|-----------|------------|
-| r=8 | 25.7 / 25.5 | 25.7 / 25.5 | 24.2 / 26.1 | 25.7 / 25.5 | 42.7 / 46.9 | 43.1 / 47.6 |
-| r=16 | 26.7 / 23.0 | 26.7 / 23.0 | 26.7 / 23.0 | 26.7 / 23.0 | 37.4 / 44.4 | 42.1 / 47.3 |
 
 ### 500-step tamper sweep on r=8 all-module (pdbs=1) — WMDP / MMLU
 
@@ -219,14 +167,6 @@ Phase 1: WikiText repair (200 steps, lr=2e-5). Phase 2: Bio attack (500 steps, l
 | r=12 (AdamW, pdbs=4) | 14.4 | 11.0 / 12 | 10.6 / 12 | 10.5 / 12 | 7.1 / 12 |
 | r=16 (AdamW, pdbs=1) | 26.2 | 5.1 / 8 | 2.6 / 7 | 3.3 / 7 | 1.0 / 1 |
 | r=32 (AdamW, pdbs=1) | 38.7 | 6.6 / 13 | 3.4 / 10 | 5.1 / 10 | 1.0 / 1 |
-
-### Old attn-only tamper (50 epochs, eval every 100 steps, no MMLU)
-
-Tamper on rank sweep models (pdbs=1, orth loss was always 0 during unlearning).
-
-| rank | Step 0 | Step 200 | Step 500 | Step 800 | Step 1000 |
-|------|--------|----------|----------|----------|-----------|
-| 8 | 26.73 | 26.50 | 39.75 | 42.40 | 41.24 |
 
 ### all-module LoRA lr=2e-4 tamper (AdamW, 32 epochs, eval every 500 steps) — WMDP / MMLU
 
