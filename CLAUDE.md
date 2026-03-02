@@ -33,6 +33,14 @@ Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the
 
 Default to SFT (full parameter training) unless LoRA is specifically requested.
 
+Tuned lens unlearning requires FSDP when running on GPUs with 95GB of VRAM or less using torchrun, because it holds a reference model and several tuned lenses in memory alongside the training model.
+
+Checkpoint transfer unlearning does not support FSDP because its custom trainer calls `unwrapped_model(**inputs)` which bypasses FSDP parameter gathering. It uses DDP with gradient accumulation steps via torchrun. It holds a frozen checkpoint model copy on each GPU for source activations. SFT requires pdbs=2 on 95GB GPUs (pdbs=4 OOMs).
+
+Sequential SFT uses FSDP (`full_shard auto_wrap`) via torchrun with a frozen ref model per GPU for retain KL loss.
+
+Orth circuit breakers and simple NPO use DDP with gradient accumulation via torchrun. No reference models.
+
 ## Epochs and data budget
 
 Always use 1 epoch unless explicitly told otherwise. Control training length via `num_train_examples` (or dataset size) and batch size, not epochs.
@@ -89,6 +97,7 @@ To run custom WMDP bio subset evals, include the task path: `--include_path "/ho
 - MMLU uses 0-shot (default)
 - Use `--verbosity WARNING`
 - See the top of this file for multi-GPU requirements
+- Always set `HF_HUB_OFFLINE=1` in sbatch scripts that run lm_eval. Without it, each torchrun worker hits the HuggingFace API to download datasets, and parallel jobs will get 429 rate-limited. All eval datasets (wmdp_bio_robust, mmlu) are already cached locally.
 
 ### lm_eval dtype fix (lm_eval <=0.4.11 + transformers >=4.55)
 
@@ -123,6 +132,8 @@ If you use need to use a venv, create and/or activate it with `python3 -m venv .
 ## Slurm cluster
 
 When installing on a slurm cluster do it on a node with `srun pip install -e .` to prevent CPU-only versions of packages from being installed.
+
+In sbatch scripts, set `export HF_HOME="/projects/a6a/public/lucia/hf_cache"` to avoid filling the home directory quota with HuggingFace downloads.
 
 ## Tamper Attacks
 

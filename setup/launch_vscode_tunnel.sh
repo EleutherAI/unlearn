@@ -27,8 +27,9 @@ if [ ! -f ~/opt/vscode_cli/code ]; then
     exit 1
 fi
 
-# Start named VS Code tunnel for remote connection to compute node
-# Using a unique name that includes the project for easy identification
+# Remove stale lock from previous node so the tunnel can start
+rm -f ~/.vscode/cli/tunnel-stable.lock
+
 echo "Starting VS Code tunnel with name: a5k-filter-compute"
 echo "Please check the output below for the authentication code and connection URL"
 echo "=========================================="

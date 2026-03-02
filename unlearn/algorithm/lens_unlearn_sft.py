@@ -140,12 +140,10 @@ class SFTUnlearningTrainer(UnlearningTrainer):
 
         ### Retain loss - KL divergence
         if retain_coeff > 0 and self.frozen_ref_model is not None:
-            # Get logits from frozen model (WHICH IS ON CPU)
             with torch.no_grad():
-                # Run forward pass on CPU
-                # ref_inputs_cpu = retain_input_ids.to("cpu")
+                ref_device = next(self.frozen_ref_model.parameters()).device
                 ref_outputs = self.frozen_ref_model(
-                    retain_input_ids, attention_mask=None
+                    retain_input_ids.to(ref_device), attention_mask=None
                 )
                 ref_logits = ref_outputs.logits.to(target_device)
 
@@ -359,7 +357,7 @@ if __name__ == "__main__":
             device_map={"": local_rank},
         )
         frozen_ref_model.eval()
-        print("Loaded reference model in bf16.")
+        print(f"Loaded reference model in bf16 on GPU {local_rank}.")
     else:
         print("KL retain loss disabled, skipping reference model.")
 
@@ -384,6 +382,11 @@ if __name__ == "__main__":
         bf16=True,
         max_grad_norm=1.0,
         save_strategy="no",
+        fsdp="full_shard auto_wrap",
+        fsdp_config={
+            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+            "state_dict_type": "FULL_STATE_DICT",
+        },
     )
 
     trainer = SFTUnlearningTrainer(

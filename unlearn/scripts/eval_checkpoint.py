@@ -55,11 +55,25 @@ def run_lmeval(checkpoint_path: str, tasks: list[str], num_gpus: int = 4) -> dic
     env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in range(num_gpus))
 
     print(f"Running: {' '.join(cmd)}", flush=True)
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+    # Write subprocess stderr to a log file for debugging crash root causes
+    stderr_log = Path(checkpoint_path) / ".." / ".." / "eval_results" / f"stderr_{Path(checkpoint_path).name}.log"
+    stderr_log = stderr_log.resolve()
+    stderr_log.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(stderr_log, "w") as stderr_file:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=stderr_file, text=True, env=env)
 
     if result.returncode != 0:
         print(f"lm_eval stdout: {result.stdout[-2000:]}", flush=True)
-        print(f"lm_eval stderr: {result.stderr[-2000:]}", flush=True)
+        stderr_text = stderr_log.read_text()
+        # Print lines containing traceback/error info
+        error_lines = [l for l in stderr_text.split("\n")
+                       if any(kw in l for kw in ("Error", "Traceback", "raise ", "File ", "assert"))]
+        print(f"lm_eval FAILED (full stderr in {stderr_log})", flush=True)
+        print("Key error lines:", flush=True)
+        for line in error_lines[-30:]:
+            print(f"  {line}", flush=True)
         raise RuntimeError(f"lm_eval subprocess failed with code {result.returncode}")
 
     results = {}
@@ -74,9 +88,10 @@ def run_lmeval(checkpoint_path: str, tasks: list[str], num_gpus: int = 4) -> dic
                     results["mmlu"] = data["results"]["mmlu"]["acc,none"]
             break
 
-    # Fallback: parse table output
+    # Fallback: parse table output from stdout and stderr log
     if not results:
-        output = result.stdout + result.stderr
+        stderr_text = stderr_log.read_text() if stderr_log.exists() else ""
+        output = (result.stdout or "") + stderr_text
         for line in output.split("\n"):
             if "|wmdp_bio_robust " in line and "|acc" in line:
                 match = re.search(r"\|acc\s*\|[^\|]*\|\s*([\d.]+)", line)

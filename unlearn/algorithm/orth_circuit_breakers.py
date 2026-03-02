@@ -2,7 +2,7 @@
 # Uses Cas's circuit breakers implementation with DDP enabled.
 
 import os
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
@@ -92,6 +92,25 @@ class UnlearningTrainer(Trainer):
 
 class RRTrainer(UnlearningTrainer):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.use_lora:
+            self._orig_param_data = {
+                name: param.data.clone()
+                for name, param in self.model.named_parameters()
+            }
+
+    @contextmanager
+    def _original_params(self, model):
+        """Swap model parameters to their pre-training values for the reference pass."""
+        saved = {}
+        for name, param in model.named_parameters():
+            saved[name] = param.data
+            param.data = self._orig_param_data[name]
+        yield
+        for name, param in model.named_parameters():
+            param.data = saved[name]
+
     def compute_loss(
         self,
         model: PreTrainedModel,
@@ -155,10 +174,12 @@ class RRTrainer(UnlearningTrainer):
         capturer = ActivationCapture(unwrapped_model, self.target_module_names)
 
         # --- Forward Pass 1: Reference (No Adapter) ---
-        adapter_ctx = (
-            unwrapped_model.disable_adapter() if self.use_lora else nullcontext()
+        ref_ctx = (
+            unwrapped_model.disable_adapter()
+            if self.use_lora
+            else self._original_params(unwrapped_model)
         )  # type: ignore
-        with adapter_ctx:
+        with ref_ctx:
             unwrapped_model.eval()
             capturer.register()  # Attach hooks
 

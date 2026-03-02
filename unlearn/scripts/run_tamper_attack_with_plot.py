@@ -176,8 +176,9 @@ class TamperAttackConfig:
     warmup_steps: int = 0  # when >0, overrides warmup_ratio
     max_steps: int = -1  # overrides epochs when positive
     seed: int = 42
-    tamper_data: Literal["bio_remove", "benign", "bio_chat", "bio_forget_flagged", "bio_forget", "flagged"] = "bio_remove"
+    tamper_data: Literal["bio_remove", "benign", "bio_chat", "bio_forget_flagged", "bio_forget", "flagged", "wikitext", "annealing"] = "bio_remove"
     flagged_docs_path: str = "/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix"
+    annealing_docs_path: str = "/projects/a6a/public/lucia/deep-ignorance-filtered-annealing-mix"
 
 
 class MuonTrainer(Trainer):
@@ -724,6 +725,29 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
         if config.num_train_examples < len(dataset):
             dataset = dataset.select(range(config.num_train_examples))
         print(f"Selected {len(dataset)} chunks")
+    elif config.tamper_data == "wikitext":
+        total_needed = config.max_steps * config.batch_size * config.grad_accumulation
+        assert total_needed > 0, "wikitext mode requires --max_steps > 0"
+        print(f"Preparing WikiText-only dataset ({total_needed} chunks)...")
+        chunks = prepare_wikitext_examples(
+            tokenizer, num_examples=total_needed, seed=config.seed
+        )
+        dataset = hf_dataset.from_list(chunks)
+        del chunks
+        print(f"WikiText: {len(dataset)} chunks")
+    elif config.tamper_data == "annealing":
+        total_needed = config.max_steps * config.batch_size * config.grad_accumulation
+        assert total_needed > 0, "annealing mode requires --max_steps > 0"
+        print(f"Preparing filtered annealing dataset ({total_needed} chunks)...")
+        chunks = prepare_flagged_doc_examples(
+            tokenizer,
+            num_chunks=total_needed,
+            path=config.annealing_docs_path,
+            seed=config.seed,
+        )
+        dataset = hf_dataset.from_list(chunks)
+        del chunks
+        print(f"Annealing: {len(dataset)} chunks")
     else:
         raise ValueError(f"Unknown tamper_data: {config.tamper_data}")
     return dataset.shuffle(seed=config.seed)
@@ -1140,13 +1164,15 @@ def parse_args():
         "--tamper_data",
         type=str,
         default="bio_remove",
-        choices=["bio_remove", "benign", "bio_chat", "bio_forget_flagged", "bio_forget", "flagged"],
+        choices=["bio_remove", "benign", "bio_chat", "bio_forget_flagged", "bio_forget", "flagged", "wikitext", "annealing"],
         help=(
             "Training data for tamper attack: bio_remove (WMDP-Bio Remove), "
             "benign (WikiText+UltraChat), bio_chat (WMDP-Bio+UltraChat), "
             "bio_flagged (full bio forget corpus + flagged docs to fill training), "
             "bio_forget (cais/wmdp-bio-forget-corpus only), "
-            "flagged (flagged annealing docs only)"
+            "flagged (flagged annealing docs only), "
+            "wikitext (WikiText-103 only), "
+            "annealing (filtered annealing mix)"
         ),
     )
     parser.add_argument(
@@ -1154,6 +1180,12 @@ def parse_args():
         type=str,
         default="/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix",
         help="Path to flagged annealing docs dataset on disk",
+    )
+    parser.add_argument(
+        "--annealing_docs_path",
+        type=str,
+        default="/projects/a6a/public/lucia/deep-ignorance-filtered-annealing-mix",
+        help="Path to filtered annealing docs dataset on disk",
     )
     return parser.parse_args()
 
@@ -1188,6 +1220,7 @@ if __name__ == "__main__":
             seed=args.seed,
             tamper_data=args.tamper_data,
             flagged_docs_path=args.flagged_docs_path,
+            annealing_docs_path=args.annealing_docs_path,
         )
 
         results_path, plot_path = run_tamper_attack(config)

@@ -516,8 +516,8 @@ class SequentialSftUnlearnConfig:
     retain_coef: float = 20.0
     remove_coef: float = 5.0
     start_layer: int | None = None
-    end_layer: int = 8
-    layer_step: int = 4
+    end_layer: int = 0
+    layer_step: int = 1
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"
     save_path: str = ""
     epochs_per_layer: int = 1

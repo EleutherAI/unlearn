@@ -11,14 +11,24 @@ from transformers import (
 
 
 def save_checkpoint(trainer: Trainer, save_path: Path, tokenizer):
+    from peft import PeftModel
+
     trainer.accelerator.wait_for_everyone()
     state_dict = trainer.accelerator.get_state_dict(trainer.model, unwrap=False)
 
     if trainer.accelerator.is_main_process:
         unwrapped_model = trainer.accelerator.unwrap_model(trainer.model)
-        unwrapped_model.save_pretrained(
-            save_path, state_dict=state_dict, safe_serialization=True
-        )
+
+        if isinstance(unwrapped_model, PeftModel):
+            unwrapped_model.save_pretrained(
+                save_path, state_dict=state_dict, safe_serialization=True
+            )
+            merged = unwrapped_model.merge_and_unload()
+            merged.save_pretrained(save_path, safe_serialization=True)
+        else:
+            unwrapped_model.save_pretrained(
+                save_path, state_dict=state_dict, safe_serialization=True
+            )
         tokenizer.save_pretrained(save_path)
 
         config_path = Path(save_path) / "config.json"

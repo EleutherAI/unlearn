@@ -13,7 +13,6 @@ Usage:
 import gc
 import json
 import os
-import shutil
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -21,6 +20,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 import torchopt
+from bergson.config import DistributedConfig
 from bergson.distributed import launch_distributed_run, simple_fsdp
 from bergson.trainer import (
     BackwardState,
@@ -80,8 +80,14 @@ class MagicPerTokenConfig:
     eval_chunk_size: int = 4
     """Eval batch size for WMDP-bio-robust (smaller to avoid OOM)."""
 
+    eval_task: str = "wmdp"
+    """Eval task: wmdp (WMDP-bio-robust) or mmlu (all subjects)."""
+
     chunk_documents: bool = False
     """Chunk documents into max_seq_len-token pieces instead of truncating."""
+
+    nnode: int = 1
+    """Number of nodes for distributed training."""
 
     ckpt_dir: str = ""
     """Directory for training checkpoints. Auto-generated if empty."""
@@ -99,7 +105,9 @@ class MagicPerTokenConfig:
             "wmdp_retain",
             "ultrachat",
             "wmdp_lie_o",
+            "wikitext",
         ), f"Unknown dataset: {self.dataset}"
+        assert self.eval_task in ("wmdp", "mmlu"), f"Unknown eval_task: {self.eval_task}"
         assert (
             self.num_examples % self.batch_size == 0
         ), f"num_examples ({self.num_examples}) must be divisible by batch_size ({self.batch_size})"
@@ -108,8 +116,9 @@ class MagicPerTokenConfig:
                 f"/projects/a6a/public/lucia/magic_{self.dataset}_msl{self.max_seq_len}_ckpts"
             )
         if not self.output_dir:
+            eval_suffix = f"_{self.eval_task}" if self.eval_task != "wmdp" else ""
             self.output_dir = (
-                f"/projects/a6a/public/lucia/runs/magic_{self.dataset}_msl{self.max_seq_len}_output"
+                f"/projects/a6a/public/lucia/runs/magic_{self.dataset}_msl{self.max_seq_len}{eval_suffix}_output"
             )
 
     @property
@@ -165,7 +174,7 @@ def build_eval_batch(
     }
 
 
-def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTokenConfig, text_key: str):
+def worker(global_rank, rank, world_size, train_data, eval_data, run_cfg: MagicPerTokenConfig, text_key: str):
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
     torch.manual_seed(42)
@@ -183,7 +192,7 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
             "nccl",
             init_method=f"tcp://{addr}:{port}",
             device_id=torch.device(device),
-            rank=rank,
+            rank=global_rank,
             timeout=timedelta(hours=2),
             world_size=world_size,
         )
@@ -193,13 +202,15 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
     t0 = time.time()
     model = AutoModelForCausalLM.from_pretrained(
         run_cfg.model,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch.float32,
         attn_implementation="eager",
     )
     model.loss_function = weighted_causal_lm_ce
     model.to(device)
 
     if world_size > 1:
+        if global_rank == 0:
+            print("Initializing FSDP...", flush=True)
         mesh = init_device_mesh("cuda", (world_size,))
         with mesh:
             simple_fsdp(model)
@@ -208,7 +219,8 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
     if global_rank == 0:
         print(
             f"Model loaded in {time.time() - t0:.1f}s  "
-            f"({n_params/1e9:.2f}B params per shard)"
+            f"({n_params/1e9:.2f}B params per shard)",
+            flush=True,
         )
 
     tokenizer = AutoTokenizer.from_pretrained(run_cfg.model)
@@ -232,8 +244,11 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
     if global_rank == 0:
         print(
             f"DataStream: {run_cfg.num_batches} batches x {run_cfg.batch_size} "
-            f"= {run_cfg.num_examples} examples"
+            f"= {run_cfg.num_examples} examples",
+            flush=True,
         )
+
+    amp_ctx = torch.amp.autocast("cuda", dtype=torch.bfloat16)
 
     # ── Step 1: Forward training ─────────────────────────────────────
     def training_complete():
@@ -244,7 +259,7 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
     if training_complete():
         if global_rank == 0:
             ckpts = sorted_checkpoints(run_cfg.ckpt_dir)
-            print(f"\nStep 1: SKIPPED ({len(ckpts)} checkpoints)")
+            print(f"\nStep 1: SKIPPED ({len(ckpts)} checkpoints)", flush=True)
         ckpts = sorted_checkpoints(run_cfg.ckpt_dir)
         _, last_path = ckpts[-1]
         state = TrainerState.load(last_path)
@@ -256,17 +271,35 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
         )
         del state0
     else:
-        if global_rank == 0:
-            print("\nStep 1: Fine-tuning with checkpoints...")
-        if rank == 0 and os.path.exists(run_cfg.ckpt_dir):
-            shutil.rmtree(run_cfg.ckpt_dir)
+        existing_ckpts = sorted_checkpoints(run_cfg.ckpt_dir) if os.path.isdir(run_cfg.ckpt_dir) else []
+
+        if existing_ckpts:
+            start_batch = existing_ckpts[-1][0]
+            state = TrainerState.load(existing_ckpts[-1][1])
+            if global_rank == 0:
+                print(f"\nStep 1: Resuming from step {start_batch}/{run_cfg.num_batches}...", flush=True)
+            del state0
+        else:
+            if global_rank == 0:
+                print("\nStep 1: Fine-tuning with checkpoints...")
+            os.makedirs(run_cfg.ckpt_dir, exist_ok=True)
+            state = state0
+            start_batch = 0
+            del state0
+
         if world_size > 1:
             dist.barrier()
         os.makedirs(run_cfg.ckpt_dir, exist_ok=True)
 
         t0 = time.time()
-        state = trainer.train(state0, stream, save_dir=run_cfg.ckpt_dir)
-        del state0
+        with amp_ctx:
+            for i in range(start_batch, run_cfg.num_batches):
+                p = os.path.join(run_cfg.ckpt_dir, f"step_{state.batch_index}.ckpt")
+                state.save(p)
+                state = trainer.step(state, stream[i])
+                if global_rank == 0 and (i + 1) % 50 == 0:
+                    print(f"  Step {i + 1}/{run_cfg.num_batches}", flush=True)
+
         if global_rank == 0:
             print(f"Training done in {time.time() - t0:.1f}s")
 
@@ -278,8 +311,9 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
         )
         gc.collect()
 
-    # ── Step 2: Evaluate on WMDP-bio-robust ──────────────────────────
+    # ── Step 2: Evaluate on eval task ──────────────────────────────────
     os.makedirs(run_cfg.output_dir, exist_ok=True)
+    eval_label = "MMLU" if run_cfg.eval_task == "mmlu" else "WMDP-bio-robust"
 
     if os.path.exists(run_cfg.eval_grads_path):
         if global_rank == 0:
@@ -287,23 +321,24 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
         saved = torch.load(run_cfg.eval_grads_path, weights_only=True)
         param_grads = {k: v.to(device) for k, v in saved["param_grads"].items()}
         if global_rank == 0:
-            print(f"WMDP avg loss: {saved['avg_loss']:.4f}")
+            print(f"{eval_label} avg loss: {saved['avg_loss']:.4f}")
         del state
     else:
         if global_rank == 0:
-            print("\nStep 2: Evaluating on WMDP-bio-robust...")
+            print(f"\nStep 2: Evaluating on {eval_label}...")
 
-        wmdp_examples = [wmdp[i] for i in range(len(wmdp))]
+        eval_examples = [eval_data[i] for i in range(len(eval_data))]
         param_keys = list(state.params.keys())
         grad_accum = None
         total_loss = 0.0
         n_chunks = 0
 
-        for cs in range(0, len(wmdp_examples), run_cfg.eval_chunk_size):
-            chunk = wmdp_examples[cs : cs + run_cfg.eval_chunk_size]
+        for cs in range(0, len(eval_examples), run_cfg.eval_chunk_size):
+            chunk = eval_examples[cs : cs + run_cfg.eval_chunk_size]
             eval_batch = build_eval_batch(chunk, tokenizer, run_cfg.max_seq_len)
             eval_inputs = {k: v.to(device) for k, v in eval_batch.items()}
-            chunk_loss = trainer.evaluate(state, eval_inputs)
+            with amp_ctx:
+                chunk_loss = trainer.evaluate(state, eval_inputs)
             total_loss += chunk_loss.item()
 
             grads = torch.autograd.grad(chunk_loss, list(state.params.values()))
@@ -336,7 +371,7 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
                 },
                 run_cfg.eval_grads_path,
             )
-            print(f"WMDP avg loss: {avg_loss:.4f}")
+            print(f"{eval_label} avg loss: {avg_loss:.4f}")
         del state
 
     # ── Step 3: Backward through training ────────────────────────────
@@ -367,7 +402,8 @@ def worker(global_rank, rank, world_size, train_data, wmdp, run_cfg: MagicPerTok
         if global_rank == 0:
             torch.cuda.reset_peak_memory_stats(rank)
 
-        bwd_state = trainer.backward(run_cfg.ckpt_dir, stream, bwd_state)
+        with amp_ctx:
+            bwd_state = trainer.backward(run_cfg.ckpt_dir, stream, bwd_state)
 
         if world_size > 1:
             dist.all_reduce(bwd_state.weight_grads)
@@ -490,6 +526,10 @@ def load_wmdp_eval():
     return concatenate_datasets(parts)
 
 
+def load_mmlu_eval():
+    return load_dataset("cais/mmlu", "all", split="test")
+
+
 def main():
     parser = ArgumentParser()
     parser.add_arguments(MagicPerTokenConfig, dest="run_cfg")
@@ -520,6 +560,12 @@ def main():
         ds = ds.filter(lambda x: len(x["text"].strip()) > 100)
         text_key = "text"
 
+    elif run_cfg.dataset == "wikitext":
+        print("Loading WikiText-103...")
+        ds = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split="train")
+        ds = ds.filter(lambda x: len(x["text"].strip()) > 100)
+        text_key = "text"
+
     print(f"After filtering: {len(ds)} rows")
 
     if run_cfg.chunk_documents:
@@ -532,14 +578,21 @@ def main():
     print(f"Selected {len(ds)} training examples")
     print(f"Sample: {ds[0][text_key][:200]}")
 
-    print("\nLoading WMDP-bio-robust eval set...")
-    wmdp = load_wmdp_eval()
-    print(f"WMDP-bio-robust: {len(wmdp)} questions")
+    if run_cfg.eval_task == "mmlu":
+        print("\nLoading MMLU eval set...")
+        eval_data = load_mmlu_eval()
+        print(f"MMLU: {len(eval_data)} questions")
+    else:
+        print("\nLoading WMDP-bio-robust eval set...")
+        eval_data = load_wmdp_eval()
+        print(f"WMDP-bio-robust: {len(eval_data)} questions")
 
+    dist_config = DistributedConfig(nnode=run_cfg.nnode)
     launch_distributed_run(
         f"magic-{run_cfg.dataset}",
         worker,
-        [ds, wmdp, run_cfg, text_key],
+        [ds, eval_data, run_cfg, text_key],
+        dist_config=dist_config,
     )
 
 

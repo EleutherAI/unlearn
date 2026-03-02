@@ -534,6 +534,7 @@ class CheckpointTransferConfig:
 if __name__ == "__main__":
     assert torch.cuda.is_available(), "CUDA is not available"
 
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
     NUM_PROC = os.cpu_count() // 2
 
     parser = ArgumentParser()
@@ -603,7 +604,7 @@ if __name__ == "__main__":
     checkpoint_model = AutoModelForCausalLM.from_pretrained(
         run_cfg.checkpoint_name,
         revision=run_cfg.checkpoint_revision,
-        device_map="auto",
+        device_map={"": local_rank},
         torch_dtype=torch.float16,
     )
     checkpoint_model.eval()
@@ -702,13 +703,7 @@ if __name__ == "__main__":
         bf16=True,
         save_strategy="no",
         warmup_steps=10 if run_cfg.lr_warmup else 0,
-        fsdp="full_shard auto_wrap",
-        fsdp_config={
-            "fsdp_version": 2,
-            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-            "activation_checkpointing": True,
-            "state_dict_type": "FULL_STATE_DICT",
-        },
+        ddp_find_unused_parameters=False,
     )
 
     TrainerClass = MuonRRTrainer if run_cfg.optimizer == "muon" else RRTrainer
