@@ -135,6 +135,13 @@ When installing on a slurm cluster do it on a node with `srun pip install -e .` 
 
 In sbatch scripts, set `export HF_HOME="/projects/a6a/public/lucia/hf_cache"` to avoid filling the home directory quota with HuggingFace downloads.
 
+To send files to the user, try `wormhole send`. If wormhole fails, copy the file to the shared filesystem and have the user scp it:
+```bash
+cp /tmp/myfile.tar.gz /projects/a6a/public/lucia/
+# User runs: scp a6a.aip2.isambard:/projects/a6a/public/lucia/myfile.tar.gz ~/Downloads/
+```
+`/tmp` is local per login node so scp won't find files there if the user lands on a different node.
+
 ## Tamper Attacks
 
 Two modes for tamper attacks with `run_tamper_attack_with_plot.py`:
