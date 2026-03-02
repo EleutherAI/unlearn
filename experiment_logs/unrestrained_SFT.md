@@ -347,7 +347,7 @@ Tamper: AdamW, evaluated every 500, batch_size=32.
 
 ## Unrestrained SFT
 
-### Unrestrained SFT Circuit Breakers + Tamper Results
+### Unrestrained SFT Circuit Breakers - Not Tamper Resistant
 
 Unlearned model: SFT, rm23, orth5, ret0, pdbs=1, 32 steps, 1024 examples. Training job 2485738. WMDP Robust: 26.73%, MMLU: 22.95%.
 
@@ -368,7 +368,7 @@ Tamper: SFT, AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500.
 | const/wr01/lr2e-4 | WMDP | 26.73 | 26.04 | 26.84 | 27.07 | 26.61 | 26.61 | 26.61 |
 | | MMLU | 22.95 | 27.87 | **28.78** | 26.97 | 27.91 | 26.29 | 23.90 |
 
-### Unrestrained SFT Lens + Tamper Results
+### Unrestrained SFT Lens - Seemingly Tamper Resistant
 
 Unlearned model: Tuned lens SFT, ret0, rm5, lr=1e-3, 1024 examples, 32 steps. WMDP Robust: 23.39%, MMLU: 24.65%.
 
@@ -389,7 +389,7 @@ Tamper: AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500.
 | const/wr01/lr2e-4 | WMDP | 23.39 | 25.35 | 26.96 | 26.84 | 26.73 | 27.19 | 26.84 |
 | | MMLU | 24.65 | 25.85 | 25.69 | 25.47 | 25.05 | 25.45 | 25.50 |
 
-### Unrestrained SFT Sequential + Tamper Results
+### Unrestrained SFT Sequential - Not Tamper Resistant
 
 Unlearned model: Sequential back-to-front SFT, ret0, rm5, lr=2e-4, layers 31→11 step 4, 1024 examples. WMDP Robust: 26.73%, MMLU: 22.95%.
 
@@ -410,7 +410,7 @@ Tamper: AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500.
 | const/wr01/lr2e-4 | WMDP | 26.73 | 30.07 | 30.88 | 26.38 | 26.61 | 26.84 | 26.96 |
 | | MMLU | 22.95 | 34.80 | 31.49 | 27.83 | 27.88 | 26.85 | 26.78 |
 
-### Unrestrained SFT Checkpoint Transfer + Tamper Results
+### Unrestrained SFT Checkpoint Transfer - Seemingly Tamper Resistant
 
 Unlearned model: Checkpoint transfer SFT, ret0, rm2000, lr=1e-3, 2048 examples. WMDP Robust: 26.50%, MMLU: 22.93%.
 
@@ -435,14 +435,14 @@ Tamper: AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500
 
 | Algorithm | Starting WMDP | Starting MMLU | Best Tamper WMDP | Best Tamper MMLU | Tamper Resistant? |
 |-----------|---------------|---------------|------------------|------------------|-------------------|
-| Orth CB SFT (rm23/orth5) | 26.73% | 22.95% | 39.63% | 34.70% | No |
-| Sequential SFT (rm5) | 26.73% | 22.95% | 43.09% | 43.87% | No |
+| Orth CB SFT (rm23/orth5) | 26.73% | 22.95% | 39.63% | 36.64% | Partial |
+| Sequential SFT (rm5) | 26.73% | 22.95% | 43.43% | 43.90% | No |
 | Tuned Lens SFT (rm5) | 23.39% | 24.65% | 28.34% | 26.78% | Yes |
-| Checkpoint Transfer SFT (rm2000) | 26.50% | 22.93% | 28.11% | 26.86% | Yes |
+| Checkpoint Transfer SFT (rm2000) | 26.50% | 22.93% | 31.11% | 26.86% | Yes |
 
-\* = eval failed at step 3000 (MMLU=0.00); last valid step used.
-
-Best lens SFT result so far: ret=0.05, lr=2e-4, rm=1, 1024 examples, 32 steps, pdbs=1, warmup=0.5, FSDP → WMDP 36.18%, MMLU 43.80%.
+Best Lens SFT result so far with a retain term:
+- ret=0.05, lr=2e-4, rm=1, 1024 examples, 32 steps, pdbs=1, warmup=0.5, FSDP
+- WMDP 36.18%, MMLU 43.80%.
 
 ### WMDP Bio Robust over Tampering Configs by Algorithm
 
