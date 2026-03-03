@@ -20,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path("/home/a6a/lucia.a6a/unlearn")
+REPO_ROOT = Path("/lus/lfs1aip2/projects/public/a6a/lucia/home/unlearn")
 
 
 def run_lmeval(checkpoint_path: str, tasks: list[str], num_gpus: int = 4) -> dict:
@@ -35,14 +35,22 @@ def run_lmeval(checkpoint_path: str, tasks: list[str], num_gpus: int = 4) -> dic
 
     cmd = [
         torchrun,
-        "--nproc_per_node", str(num_gpus),
-        "-m", "lm_eval",
-        "--model", "hf",
-        "--model_args", f"pretrained={checkpoint_path}",
-        "--tasks", tasks_str,
-        "--batch_size", "32",
-        "--verbosity", "WARNING",
-        "--output_path", str(output_dir),
+        "--nproc_per_node",
+        str(num_gpus),
+        "-m",
+        "lm_eval",
+        "--model",
+        "hf",
+        "--model_args",
+        f"pretrained={checkpoint_path}",
+        "--tasks",
+        tasks_str,
+        "--batch_size",
+        "32",
+        "--verbosity",
+        "WARNING",
+        "--output_path",
+        str(output_dir),
     ]
 
     if "wmdp" in tasks_str:
@@ -57,19 +65,32 @@ def run_lmeval(checkpoint_path: str, tasks: list[str], num_gpus: int = 4) -> dic
     print(f"Running: {' '.join(cmd)}", flush=True)
 
     # Write subprocess stderr to a log file for debugging crash root causes
-    stderr_log = Path(checkpoint_path) / ".." / ".." / "eval_results" / f"stderr_{Path(checkpoint_path).name}.log"
+    stderr_log = (
+        Path(checkpoint_path)
+        / ".."
+        / ".."
+        / "eval_results"
+        / f"stderr_{Path(checkpoint_path).name}.log"
+    )
     stderr_log = stderr_log.resolve()
     stderr_log.parent.mkdir(parents=True, exist_ok=True)
 
     with open(stderr_log, "w") as stderr_file:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=stderr_file, text=True, env=env)
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=stderr_file, text=True, env=env
+        )
 
     if result.returncode != 0:
         print(f"lm_eval stdout: {result.stdout[-2000:]}", flush=True)
         stderr_text = stderr_log.read_text()
         # Print lines containing traceback/error info
-        error_lines = [l for l in stderr_text.split("\n")
-                       if any(kw in l for kw in ("Error", "Traceback", "raise ", "File ", "assert"))]
+        error_lines = [
+            l
+            for l in stderr_text.split("\n")
+            if any(
+                kw in l for kw in ("Error", "Traceback", "raise ", "File ", "assert")
+            )
+        ]
         print(f"lm_eval FAILED (full stderr in {stderr_log})", flush=True)
         print("Key error lines:", flush=True)
         for line in error_lines[-30:]:
@@ -83,7 +104,9 @@ def run_lmeval(checkpoint_path: str, tasks: list[str], num_gpus: int = 4) -> dic
                 data = json.load(f)
             if "results" in data:
                 if "wmdp_bio_robust" in data["results"]:
-                    results["wmdp_bio_robust"] = data["results"]["wmdp_bio_robust"]["acc,none"]
+                    results["wmdp_bio_robust"] = data["results"]["wmdp_bio_robust"][
+                        "acc,none"
+                    ]
                 if "mmlu" in data["results"]:
                     results["mmlu"] = data["results"]["mmlu"]["acc,none"]
             break

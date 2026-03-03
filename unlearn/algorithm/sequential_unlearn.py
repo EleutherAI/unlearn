@@ -373,6 +373,7 @@ class SequentialUnlearnConfig:
     use_top_k_entropy: bool = False
     top_k: int = 100
     use_ultrachat: bool = True
+    dtype: Literal["bf16", "fp16"] = "bf16"
 
 
 def main():
@@ -458,7 +459,8 @@ def main():
             num_train_epochs=run_cfg.epochs_per_layer,
             weight_decay=0.01,
             gradient_checkpointing=True,
-            bf16=True,
+            fp16=run_cfg.dtype == "fp16",
+            bf16=run_cfg.dtype == "bf16",
             max_grad_norm=1.0,
             save_strategy="no",
             ddp_find_unused_parameters=False,

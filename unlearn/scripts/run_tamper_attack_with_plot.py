@@ -65,7 +65,7 @@ from lm_eval.models.huggingface import HFLM
 from lm_eval.tasks import TaskManager
 
 MAX_LENGTH = 2048
-REPO_ROOT = Path("/home/a6a/lucia.a6a/unlearn")
+REPO_ROOT = Path("/lus/lfs1aip2/projects/public/a6a/lucia/home/unlearn")
 
 
 def run_lmeval_subprocess(model_path: str, tasks: list[str], num_gpus: int = 4) -> dict:
@@ -84,6 +84,9 @@ def run_lmeval_subprocess(model_path: str, tasks: list[str], num_gpus: int = 4) 
         shutil.rmtree(output_dir)
 
     torchrun = str(Path(sys.executable).parent / "torchrun")
+
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in range(num_gpus))
 
     cmd = [
         torchrun,
@@ -111,16 +114,12 @@ def run_lmeval_subprocess(model_path: str, tasks: list[str], num_gpus: int = 4) 
     if "mmlu" in tasks_str:
         cmd.extend(["--num_fewshot", "1"])
 
-    # Override CUDA_VISIBLE_DEVICES so the subprocess sees all GPUs
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in range(num_gpus))
-
     print(f"Running: {' '.join(cmd)}", flush=True)
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
 
     if result.returncode != 0:
-        print(f"lm_eval stdout: {result.stdout[-2000:]}", flush=True)
-        print(f"lm_eval stderr: {result.stderr[-2000:]}", flush=True)
+        print(f"lm_eval stdout: {result.stdout[-5000:]}", flush=True)
+        print(f"lm_eval stderr: {result.stderr[-5000:]}", flush=True)
         raise RuntimeError(f"lm_eval subprocess failed with code {result.returncode}")
 
     # Parse results from JSON output files (more reliable than parsing tables)
@@ -176,9 +175,23 @@ class TamperAttackConfig:
     warmup_steps: int = 0  # when >0, overrides warmup_ratio
     max_steps: int = -1  # overrides epochs when positive
     seed: int = 42
-    tamper_data: Literal["bio_remove", "benign", "bio_chat", "bio_forget_flagged", "bio_forget", "flagged", "wikitext", "annealing"] = "bio_remove"
-    flagged_docs_path: str = "/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix"
-    annealing_docs_path: str = "/projects/a6a/public/lucia/deep-ignorance-filtered-annealing-mix"
+    precision: Literal["bf16", "fp16"] = "bf16"
+    tamper_data: Literal[
+        "bio_remove",
+        "benign",
+        "bio_chat",
+        "bio_forget_flagged",
+        "bio_forget",
+        "flagged",
+        "wikitext",
+        "annealing",
+    ] = "bio_remove"
+    flagged_docs_path: str = (
+        "/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix"
+    )
+    annealing_docs_path: str = (
+        "/projects/a6a/public/lucia/deep-ignorance-filtered-annealing-mix"
+    )
 
 
 class MuonTrainer(Trainer):
@@ -228,12 +241,15 @@ def _save_checkpoint_for_eval(model, tokenizer, checkpoint_dir: Path):
             json.dump(config_dict, f, indent=2)
 
 
-def _submit_eval_sbatch(checkpoint_dir: Path, output_json: Path, tasks: list[str]) -> str:
+def _submit_eval_sbatch(
+    checkpoint_dir: Path, output_json: Path, tasks: list[str]
+) -> str:
     """Submit an eval sbatch job and return the SLURM job ID."""
     sbatch_path = REPO_ROOT / "unlearn" / "scripts" / "eval_checkpoint.sbatch"
     tasks_str = ",".join(tasks)
     cmd = [
-        "sbatch", "--parsable",
+        "sbatch",
+        "--parsable",
         str(sbatch_path),
         str(checkpoint_dir),
         str(output_json),
@@ -252,8 +268,16 @@ def _wait_for_slurm_jobs(job_ids: list[str], poll_interval: int = 30):
     pending = set(job_ids)
     while pending:
         result = subprocess.run(
-            ["sacct", "-j", ",".join(pending), "--format=JobID,State", "--noheader", "-P"],
-            capture_output=True, text=True,
+            [
+                "sacct",
+                "-j",
+                ",".join(pending),
+                "--format=JobID,State",
+                "--noheader",
+                "-P",
+            ],
+            capture_output=True,
+            text=True,
         )
         still_running = set()
         for line in result.stdout.strip().split("\n"):
@@ -267,7 +291,9 @@ def _wait_for_slurm_jobs(job_ids: list[str], poll_interval: int = 30):
                 still_running.add(jid)
         pending = still_running
         if pending:
-            print(f"  Waiting for {len(pending)} eval jobs: {sorted(pending)}", flush=True)
+            print(
+                f"  Waiting for {len(pending)} eval jobs: {sorted(pending)}", flush=True
+            )
             time.sleep(poll_interval)
     print("All eval jobs completed.", flush=True)
 
@@ -289,15 +315,19 @@ def _collect_async_results(pending_evals: list[dict]) -> list[dict]:
             if "mmlu_acc" in data:
                 result["mmlu_acc"] = data["mmlu_acc"]
             results.append(result)
-            print(f"  Step {step}: WMDP Bio = {result['wmdp_bio_acc']:.4f}" +
-                  (f", MMLU = {result['mmlu_acc']:.4f}" if "mmlu_acc" in result else ""))
+            print(
+                f"  Step {step}: WMDP Bio = {result['wmdp_bio_acc']:.4f}"
+                + (f", MMLU = {result['mmlu_acc']:.4f}" if "mmlu_acc" in result else "")
+            )
         else:
             print(f"  Step {step}: result file missing ({output_json})")
-            results.append({
-                "step": step,
-                "wmdp_bio_acc": 0.25,
-                "timestamp": entry.get("timestamp", datetime.now().isoformat()),
-            })
+            results.append(
+                {
+                    "step": step,
+                    "wmdp_bio_acc": 0.25,
+                    "timestamp": entry.get("timestamp", datetime.now().isoformat()),
+                }
+            )
     return results
 
 
@@ -331,6 +361,7 @@ class WMDPEvalCallback(TrainerCallback):
         self.async_eval = async_eval
         self.eval_results = []
         self.pending_evals: list[dict] = []
+        self.trainer = None
 
     def on_step_begin(self, args, state, control, **kwargs):
         if state.global_step % self.eval_every != 0:
@@ -363,18 +394,35 @@ class WMDPEvalCallback(TrainerCallback):
 
     def _submit_async_eval(self, global_step: int, **kwargs):
         """Save checkpoint and submit async eval sbatch (rank 0 only)."""
-        trainer = kwargs.get("trainer")
+        trainer = self.trainer
         if trainer is not None:
             trainer.accelerator.wait_for_everyone()
 
+        checkpoint_dir = self.checkpoints_base_dir / f"step_{global_step}"
+
+        # Use trainer.save_model for FSDP compatibility (gathers sharded params)
+        if trainer is not None and trainer.is_fsdp_enabled:
+            trainer.save_model(str(checkpoint_dir))
+            if _is_main_process():
+                self.tokenizer.save_pretrained(checkpoint_dir)
+                config_path = checkpoint_dir / "config.json"
+                if config_path.exists():
+                    with open(config_path) as f:
+                        config_dict = json.load(f)
+                    if "dtype" not in config_dict or config_dict["dtype"] is None:
+                        config_dict["dtype"] = config_dict.get("torch_dtype", "float32")
+                        with open(config_path, "w") as f:
+                            json.dump(config_dict, f, indent=2)
+        else:
+            if not _is_main_process():
+                return
+            save_model = self.model
+            if trainer is not None:
+                save_model = trainer.accelerator.unwrap_model(self.model)
+            _save_checkpoint_for_eval(save_model, self.tokenizer, checkpoint_dir)
+
         if not _is_main_process():
             return
-
-        checkpoint_dir = self.checkpoints_base_dir / f"step_{global_step}"
-        save_model = self.model
-        if trainer is not None:
-            save_model = trainer.accelerator.unwrap_model(self.model)
-        _save_checkpoint_for_eval(save_model, self.tokenizer, checkpoint_dir)
 
         eval_results_dir = self.checkpoints_base_dir.parent / "eval_results"
         eval_results_dir.mkdir(parents=True, exist_ok=True)
@@ -385,12 +433,14 @@ class WMDPEvalCallback(TrainerCallback):
             tasks.append("mmlu")
 
         job_id = _submit_eval_sbatch(checkpoint_dir, output_json, tasks)
-        self.pending_evals.append({
-            "step": global_step,
-            "job_id": job_id,
-            "output_json": str(output_json),
-            "timestamp": datetime.now().isoformat(),
-        })
+        self.pending_evals.append(
+            {
+                "step": global_step,
+                "job_id": job_id,
+                "output_json": str(output_json),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
     def _evaluate_wmdp_sync(self) -> dict:
         """Run eval synchronously (original single-GPU path)."""
@@ -464,26 +514,23 @@ class WMDPEvalCallback(TrainerCallback):
         print(f"Results saved to {self.output_path}")
 
 
-def get_model_and_tokenizer(model_name: str):
+def get_model_and_tokenizer(model_name: str, precision: str = "bf16"):
+    # fp16 AMP requires fp32 weights (autocast handles fp16 in forward pass,
+    # grad scaler needs fp32 grads). bf16 AMP works with bf16 weights directly.
+    dtype = torch.float32 if precision == "fp16" else torch.bfloat16
     local_rank = os.environ.get("LOCAL_RANK")
     if local_rank is not None:
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, device_map=None, torch_dtype=torch.bfloat16, use_cache=False
+            model_name, device_map=None, torch_dtype=dtype, use_cache=False
         )
         model = model.to(f"cuda:{int(local_rank)}")
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, device_map="auto", torch_dtype=torch.bfloat16
+            model_name, device_map="auto", torch_dtype=dtype
         )
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.add_special_tokens(
-        {
-            "pad_token": "<|padding|>",
-            "eos_token": "<|endoftext|>",
-            "bos_token": "<|startoftext|>",
-        }
-    )
-    tokenizer.padding_side = "left"
+    tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
+    tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
+
     return model, tokenizer
 
 
@@ -681,9 +728,13 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
         del chunked_examples, bio_chunks, chat_chunks
     elif config.tamper_data == "bio_forget_flagged":
         print("Preparing mixed dataset (bio forget corpus + flagged annealing docs)...")
-        full_corpus = load_dataset("cais/wmdp-bio-forget-corpus", split="train", token=True)
+        full_corpus = load_dataset(
+            "cais/wmdp-bio-forget-corpus", split="train", token=True
+        )
         full_corpus = full_corpus.shuffle(seed=config.seed)
-        tokenized = full_corpus.map(lambda x: tokenize_examples_fn(x, tokenizer), batched=True)
+        tokenized = full_corpus.map(
+            lambda x: tokenize_examples_fn(x, tokenizer), batched=True
+        )
         bio_chunks = []
         for example in tokenized:
             bio_chunks.extend(chunk_example(example, tokenizer, chunk_size=MAX_LENGTH))
@@ -702,6 +753,7 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
             flagged_ds = hf_dataset.from_list(flagged_chunks)
             del flagged_chunks
             from datasets import concatenate_datasets
+
             dataset = concatenate_datasets([bio_ds, flagged_ds])
             del bio_ds, flagged_ds
         else:
@@ -883,7 +935,7 @@ def run_tamper_attack(config: TamperAttackConfig):
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     ddp = world_size > 1
-    async_eval = ddp
+    async_eval = True
 
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -891,7 +943,7 @@ def run_tamper_attack(config: TamperAttackConfig):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_path = output_dir / f"tamper_results_{timestamp}.json"
 
-    model, tokenizer = get_model_and_tokenizer(config.model_name)
+    model, tokenizer = get_model_and_tokenizer(config.model_name, config.precision)
 
     if config.lora_r > 0:
         target_modules = get_target_modules(config.lora_target)
@@ -914,10 +966,12 @@ def run_tamper_attack(config: TamperAttackConfig):
         f"world_size ({world_size})"
     )
     if ddp:
-        print(f"DDP: world_size={world_size}, "
-              f"grad_acc {config.grad_accumulation} -> {adjusted_grad_acc}, "
-              f"effective batch = {config.batch_size} * {adjusted_grad_acc} * {world_size} "
-              f"= {config.batch_size * adjusted_grad_acc * world_size}")
+        print(
+            f"DDP: world_size={world_size}, "
+            f"grad_acc {config.grad_accumulation} -> {adjusted_grad_acc}, "
+            f"effective batch = {config.batch_size} * {adjusted_grad_acc} * {world_size} "
+            f"= {config.batch_size * adjusted_grad_acc * world_size}"
+        )
 
     dataset = prepare_dataset(config, tokenizer)
     effective_batch = config.batch_size * adjusted_grad_acc * world_size
@@ -956,6 +1010,15 @@ def run_tamper_attack(config: TamperAttackConfig):
         async_eval=async_eval,
     )
 
+    # fp16 AMP with fp32 master weights needs FSDP to fit on 95GB GPUs
+    # (fp32 model + optimizer + grads > 95GB per GPU with DDP)
+    use_fsdp = config.precision == "fp16" and world_size > 1
+    fsdp_cfg = {}
+    if use_fsdp:
+        fsdp_cfg = {
+            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+            "activation_checkpointing": True,
+        }
     training_args = TrainingArguments(
         output_dir=str(output_dir / "checkpoints"),
         learning_rate=config.lr,
@@ -965,7 +1028,7 @@ def run_tamper_attack(config: TamperAttackConfig):
         num_train_epochs=config.epochs,
         max_steps=config.max_steps,
         weight_decay=0.01,
-        gradient_checkpointing=True,
+        gradient_checkpointing=not use_fsdp,
         save_strategy="no",
         lr_scheduler_type=config.lr_scheduler_type,
         warmup_ratio=config.warmup_ratio,
@@ -974,6 +1037,11 @@ def run_tamper_attack(config: TamperAttackConfig):
         logging_strategy="steps",
         logging_steps=10,
         report_to=[],
+        bf16=config.precision == "bf16",
+        fp16=config.precision == "fp16",
+        fsdp="full_shard auto_wrap" if use_fsdp else "",
+        fsdp_config=fsdp_cfg,
+        optim="adamw_torch" if use_fsdp else "adamw_torch_fused",
     )
 
     if config.optimizer == "muon":
@@ -992,6 +1060,8 @@ def run_tamper_attack(config: TamperAttackConfig):
             callbacks=[callback],
         )
 
+    callback.trainer = trainer
+
     if config.lora_r == 0:
         for param in model.parameters():
             param.requires_grad = True
@@ -1002,7 +1072,7 @@ def run_tamper_attack(config: TamperAttackConfig):
     # Final eval + result collection
     if async_eval:
         # Submit final eval as async job too
-        callback._submit_async_eval(trainer.state.global_step, trainer=trainer)
+        callback._submit_async_eval(trainer.state.global_step)
         if _is_main_process():
             callback.collect_async_results()
     else:
@@ -1064,6 +1134,18 @@ def parse_args():
         type=int,
         default=512,
         help="Number of training chunks (2048-token). Source docs are fully chunked first, then this many chunks are selected.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Per-device train batch size",
+    )
+    parser.add_argument(
+        "--grad_accumulation",
+        type=int,
+        default=16,
+        help="Gradient accumulation steps (divided by world_size for DDP)",
     )
     parser.add_argument(
         "--epochs",
@@ -1155,6 +1237,13 @@ def parse_args():
         help="Warmup steps (overrides warmup_ratio when >0)",
     )
     parser.add_argument(
+        "--precision",
+        type=str,
+        default="bf16",
+        choices=["bf16", "fp16"],
+        help="Training precision (bf16 or fp16)",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -1164,7 +1253,16 @@ def parse_args():
         "--tamper_data",
         type=str,
         default="bio_remove",
-        choices=["bio_remove", "benign", "bio_chat", "bio_forget_flagged", "bio_forget", "flagged", "wikitext", "annealing"],
+        choices=[
+            "bio_remove",
+            "benign",
+            "bio_chat",
+            "bio_forget_flagged",
+            "bio_forget",
+            "flagged",
+            "wikitext",
+            "annealing",
+        ],
         help=(
             "Training data for tamper attack: bio_remove (WMDP-Bio Remove), "
             "benign (WikiText+UltraChat), bio_chat (WMDP-Bio+UltraChat), "
@@ -1205,6 +1303,8 @@ if __name__ == "__main__":
             model_name=args.model_name,
             output_dir=args.output_dir,
             num_train_examples=args.num_train_examples,
+            batch_size=args.batch_size,
+            grad_accumulation=args.grad_accumulation,
             epochs=args.epochs,
             eval_every=args.eval_every,
             lr=args.lr,
@@ -1216,6 +1316,7 @@ if __name__ == "__main__":
             lr_scheduler_type=args.lr_scheduler_type,
             warmup_ratio=args.warmup_ratio,
             warmup_steps=args.warmup_steps,
+            precision=args.precision,
             max_steps=args.max_steps,
             seed=args.seed,
             tamper_data=args.tamper_data,

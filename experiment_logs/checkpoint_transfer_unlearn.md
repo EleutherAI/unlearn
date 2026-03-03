@@ -178,13 +178,6 @@ All models saved to `models/EleutherAI/deep-ignorance-unfiltered_kl_ret{X}_rm{Y}
 | 2133708 | 0 | 2000 | 32 | 512 | 0.0000 | 0.8767 | 0.3145 | 0.2975 |
 | 2133741 | 0 | 2000 | 64 | 512 | 0.0000 | 0.8881 | 0.3191 | 0.3029 |
 | 2133712 | 0 | 2000 | full | 512 | 0.0000 | 31.1447 | 0.2650 | 0.2300 |
-| 2133747 | 0 | 2000 | 16 (muon) | 512 | cancelled | | | |
-| 2133758 | 0 | 2000 | full (muon*) | 512 | 0.0000 | diverged | 0.2350 | 0.2464 |
-
-\* Muon had a bug: `size(0) < 10000` threshold caused QKV (12288) and MLP up (16384) weights to route to AdamW. Only 64/388 trainable 2D params used Muon. cb_loss diverged (2.09 → 761K). Fixed threshold to `< 50000`.
-
-| Job ID | retain_coef | remove_coef | lora_r | Steps | retain_kl_loss | cb_loss | WMDP Robust | MMLU |
-|--------|-------------|-------------|--------|-------|----------------|---------|-------------|------|
 | 2133765 | 0 | 2000 | full (muon) | 512 | 0.0000 | diverged | - | - |
 | 2133784 | 0 | 2000 | full (muon) | 512 | 0.0000 | diverged | - | - |
 | 2133785 | 0 | 2000 | full (muon, lr=5e-4) | 512 | 0.0000 | 0.5941 | 0.2903 | 0.2849 |
@@ -200,8 +193,6 @@ Starting WMDP: 26.5%, Starting MMLU: 23.0%
 | Tamper Optimizer | Step 0 WMDP | Step 100 WMDP | Step 500 WMDP | Step 1000 WMDP | Final WMDP | Final MMLU | Status |
 |------------------|-------------|---------------|---------------|----------------|------------|------------|--------|
 | AdamW (short)    | 26.5%       | 26.6%         | -             | -              | 26.6% (step 110) | - | Complete |
-| AdamW (30ep)     | -           | -             | -             | -              | -          | -          | Running |
-| Muon (30ep)      | -           | -             | -             | -              | -          | -          | Running |
 
 ### ct_sft_muon_ret0_rm2000 (Muon unlearn)
 
@@ -211,8 +202,6 @@ Starting WMDP: 29.0%, Starting MMLU: 29.3%
 |------------------|-------------|---------------|---------------|----------------|------------|------------|--------|
 | Muon (short)     | 29.0%       | 28.1%         | 28.6%         | 27.9%          | 28.8% (step 1100) | - | Complete |
 | AdamW (old long) | 29.0%       | 30.2%         | 30.0%         | 29.5%          | 28.9% (step 5500) | 35.9% | Complete |
-| AdamW (30ep)     | 29.0%       | 29.7%         | -             | -              | -          | -          | Running |
-| Muon (30ep)      | -           | -             | -             | -              | -          | -          | Running |
 
 ### random_init (control baseline)
 
@@ -220,4 +209,3 @@ Starting WMDP: 26.2%, Starting MMLU: 24.5%
 
 | Tamper Optimizer | Step 0 WMDP | Step 100 WMDP | Step 500 WMDP | Step 1000 WMDP | Final WMDP | Final MMLU | Status |
 |------------------|-------------|---------------|---------------|----------------|------------|------------|--------|
-| AdamW (30ep)     | 26.2%       | 27.1%         | -             | -              | -          | -          | Running |

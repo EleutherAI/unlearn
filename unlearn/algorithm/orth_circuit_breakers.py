@@ -2,7 +2,7 @@
 # Uses Cas's circuit breakers implementation with DDP enabled.
 
 import os
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
@@ -350,6 +350,7 @@ class OrthCircuitBreakerConfig:
     optimizer: Literal["adamw", "muon"] = "adamw"
     max_steps: int = -1
     num_train_epochs: int = 1
+    dtype: Literal["bf16", "fp16"] = "bf16"
 
 
 if __name__ == "__main__":
@@ -446,8 +447,8 @@ if __name__ == "__main__":
         num_train_epochs=run_cfg.num_train_epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        fp16=not use_muon and run_cfg.lora,
-        bf16=use_muon or not run_cfg.lora,
+        fp16=run_cfg.dtype == "fp16",
+        bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
         ddp_find_unused_parameters=False,
     )

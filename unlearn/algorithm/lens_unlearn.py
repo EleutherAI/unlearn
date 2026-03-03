@@ -286,6 +286,7 @@ class LensUnlearnConfig:
     skip_eval: bool = False
     epochs: int = 1
     update_coef: float = 0.0
+    dtype: Literal["bf16", "fp16"] = "bf16"
 
 
 if __name__ == "__main__":
@@ -399,7 +400,8 @@ if __name__ == "__main__":
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        bf16=True,
+        fp16=run_cfg.dtype == "fp16",
+        bf16=run_cfg.dtype == "bf16",
         max_grad_norm=1.0,
         save_strategy="no",
         ddp_find_unused_parameters=False,

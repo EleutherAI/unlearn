@@ -551,6 +551,7 @@ class SequentialSftUnlearnConfig:
     probe_mask_frac: float = 0.105
     gradient_checkpointing: bool = False
     maintain_unlearned: bool = False
+    dtype: Literal["bf16", "fp16"] = "bf16"
 
 
 if __name__ == "__main__":
@@ -640,7 +641,8 @@ if __name__ == "__main__":
         num_train_epochs=total_epochs,
         weight_decay=0.01,
         gradient_checkpointing=run_cfg.gradient_checkpointing,
-        bf16=True,
+        fp16=run_cfg.dtype == "fp16",
+        bf16=run_cfg.dtype == "bf16",
         max_grad_norm=run_cfg.max_grad_norm,
         save_strategy="no",
         report_to="none",

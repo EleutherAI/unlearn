@@ -80,6 +80,7 @@ class LoraCheckpointTransferConfig:
     corrupt_ratio: float = 0.5
     corrupt_ds: Literal["rewritten", "shuffled"] = "rewritten"
     hidden_dim: int = 4096
+    dtype: Literal["bf16", "fp16"] = "bf16"
 
 
 if __name__ == "__main__":
@@ -181,9 +182,7 @@ if __name__ == "__main__":
         print(f"Loaded affine transforms for layers: {list(affine_transforms.keys())}")
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
-    grad_acc_steps = max(
-        1, run_cfg.global_batch_size // (run_cfg.pdbs * world_size)
-    )
+    grad_acc_steps = max(1, run_cfg.global_batch_size // (run_cfg.pdbs * world_size))
 
     print(
         f"Running with {world_size} GPUs. Per device batch: {run_cfg.pdbs}. "
@@ -199,7 +198,8 @@ if __name__ == "__main__":
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        bf16=True,
+        fp16=run_cfg.dtype == "fp16",
+        bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
         warmup_steps=10 if run_cfg.lr_warmup else 0,
         fsdp="full_shard auto_wrap",
@@ -244,9 +244,7 @@ if __name__ == "__main__":
                 merged_path = os.path.join(run_cfg.save_path, "merged")
                 os.makedirs(merged_path, exist_ok=True)
                 merged_model = unwrapped.merge_and_unload()
-                merged_model.save_pretrained(
-                    merged_path, safe_serialization=True
-                )
+                merged_model.save_pretrained(merged_path, safe_serialization=True)
                 tokenizer.save_pretrained(merged_path)
                 print(f"Saved merged model to {merged_path}")
 

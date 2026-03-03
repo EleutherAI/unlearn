@@ -310,6 +310,7 @@ class LensSftUnlearnConfig:
     use_ultrachat: bool = False
     warmup_ratio: float = 0.0
     kl_retain_loss: bool = True
+    dtype: Literal["bf16", "fp16"] = "bf16"
 
 
 if __name__ == "__main__":
@@ -379,7 +380,8 @@ if __name__ == "__main__":
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
         gradient_checkpointing=False,
-        bf16=True,
+        fp16=run_cfg.dtype == "fp16",
+        bf16=run_cfg.dtype == "bf16",
         max_grad_norm=1.0,
         save_strategy="no",
         fsdp="full_shard auto_wrap",

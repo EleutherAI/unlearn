@@ -529,6 +529,7 @@ class CheckpointTransferConfig:
     global_batch_size: int = 32
     hidden_dim: int = 4096
     optimizer: Literal["adamw", "muon"] = "adamw"
+    dtype: Literal["bf16", "fp16"] = "bf16"
 
 
 if __name__ == "__main__":
@@ -700,7 +701,8 @@ if __name__ == "__main__":
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        bf16=True,
+        fp16=run_cfg.dtype == "fp16",
+        bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
         warmup_steps=10 if run_cfg.lr_warmup else 0,
         ddp_find_unused_parameters=False,

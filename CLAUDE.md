@@ -142,7 +142,47 @@ cp /tmp/myfile.tar.gz /projects/a6a/public/lucia/
 ```
 `/tmp` is local per login node so scp won't find files there if the user lands on a different node.
 
+## Launching Unlearning Jobs
+
+Use `scripts/run_unlearn.sh` to submit any unlearning training + eval job:
+
+```bash
+bash scripts/run_unlearn.sh -a <algorithm> --rm <remove_coef> --ret <retain_coef> [options]
+```
+
+Algorithms: `cb`, `checkpoint`/`ct`, `lens`, `sequential`/`seq`. LoRA by default; add `--sft` for full-rank.
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-a`, `--algorithm` | Algorithm (required) | — |
+| `--rm` | remove_coef (required) | — |
+| `--ret` | retain_coef (required) | — |
+| `-r`, `--rank` | LoRA rank | 16 |
+| `--lr` | Learning rate | per-algorithm |
+| `-n`, `--examples` | num_train_examples | per-algorithm |
+| `--pdbs` | per-device batch size | per-algorithm |
+| `--sft` | Full-rank SFT instead of LoRA | false |
+| `--orth` | orth_coef (cb only) | 5 |
+| `--dtype` | Mixed precision: `bf16` or `fp16` | bf16 |
+| `--extra` | Extra args passed to training script | — |
+| `--dry-run` | Print sbatch without submitting | false |
+
+Models save to `models/EleutherAI/deep-ignorance-unfiltered_<TAG>`. SLURM output (including eval results) goes to `runs/<TAG>-<JOBID>.out`. Find results with:
+```bash
+grep -A5 'wmdp_bio_robust\|mmlu' runs/<TAG>-*.out
+```
+
+Examples:
+```bash
+bash scripts/run_unlearn.sh -a checkpoint --rm 5 --ret 5 --rank 16 --lr 2e-4
+bash scripts/run_unlearn.sh -a lens --rm 5 --ret 0 -r 32
+bash scripts/run_unlearn.sh -a seq --rm 5 --ret 0 --sft
+bash scripts/run_unlearn.sh -a cb --rm 23 --orth 10 --ret 0 -r 64
+```
+
 ## Tamper Attacks
+
+Always launch tamper attacks with `torchrun --nproc_per_node=4` for DDP training on all 4 GPUs. The script auto-adjusts grad_accumulation to keep the effective batch size constant. Eval is submitted as async sbatch jobs.
 
 Two modes for tamper attacks with `run_tamper_attack_with_plot.py`:
 

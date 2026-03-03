@@ -17,7 +17,7 @@ Goals:
 | -    | 42.97%      | 45.10% | -     | -         | -                      | -                       | Baseline |
 | all  | 26.73%      | 22.95% | 0.0007 | 0.9999   | 26.73%                 | 0.141 (varies slightly) | |
 
-### Orth Circuit Breakers r32 Retain Coef Sweep: Post-Unlearning
+### Circuit Breakers r32 Retain Coef Sweep: Post-Unlearning
 
 Unlearned models: all-module, pdbs=1, rm23, orth5, r=32, all 32 layers. Baseline: 42.97 / 45.10.
 
@@ -39,7 +39,7 @@ Unlearned models: all-module, pdbs=1, rm23, orth5, r=32, all 32 layers. Baseline
 | 0.8 | 43.1 | 45.7 |
 | 1 | 43.4 | 45.7 |
 
-### Orth Circuit Breakers R=32 Retain Coef Sweep: WMDP over Tampering Configs
+### Circuit Breakers R=32 Retain Coef Sweep: WMDP over Tampering Configs
 
 Unlearned models: all-module, pdbs=1, rm23, orth5, r=32, all 32 layers. Baseline: 42.97 / 45.10.
 
@@ -54,7 +54,7 @@ Tamper: step 3000, 1ep
 | cos/ws100/lr2e-4 | 32.3 | 37.7 | 36.3 | 37.2 | 39.2 | 37.0 | 37.0 | 39.1 | 36.8 | 35.2 | 35.9 | 36.1 | **40.3** | 40.2 |
 | const/wr01/lr2e-4 | 29.6 | 27.2 | 27.2 | 26.8 | 29.0 | 26.8 | 27.5 | 26.6 | 26.5 | 29.1 | 32.3 | 28.1 | 29.4 | **32.6** |
 
-### Orth Circuit Breakers R=32 Retain Coef Sweep: Best WMDP/MMLU Step-by-Step
+### Circuit Breakers R=32 Retain Coef Sweep: Best WMDP/MMLU Step-by-Step
 
 Unlearned models: all-module, pdbs=1, rm23, orth5, r=32, all 32 layers. Baseline: 42.97 / 45.10. Values are the best found across all 6 tampering configs at each step.
 
@@ -91,7 +91,7 @@ Tamper: 1 epoch.
 | 1 | WMDP | 43.4 | 45.5 | **46.5** | 45.5 | 46.2 | 46.0 | 46.0 |
 | | MMLU | **45.7** | 45.5 | 45.4 | 45.6 | 45.5 | 45.5 | 45.4 |
 
-### Orth Circuit Breakers Layer exclusion ablation
+### Circuit Breakers Layer exclusion ablation
 
 To the extent these experiments are valid, excluding one layer from unlearning is enough to break tamper resistance.
 
@@ -121,7 +121,7 @@ Phase 1: WikiText repair (200 steps, lr=2e-5). Phase 2: Bio attack (500 steps, l
 | repair | 200 |  |  |
 | attack | 0 |  |  |
 
-### Orth Circuit Breakers Empirical rank of weight deltas (99% energy threshold)
+### Circuit Breakers Empirical rank of weight deltas (99% energy threshold)
 
 | Model | Total Frob | QKV Mean/Max Rank | Dense Mean/Max | MLP Up Mean/Max | MLP Down Mean/Max |
 |-------|-----------|-------------------|----------------|-----------------|-------------------|
@@ -131,7 +131,7 @@ Phase 1: WikiText repair (200 steps, lr=2e-5). Phase 2: Bio attack (500 steps, l
 | r=16 (AdamW, pdbs=1) | 26.2 | 5.1 / 8 | 2.6 / 7 | 3.3 / 7 | 1.0 / 1 |
 | r=32 (AdamW, pdbs=1) | 38.7 | 6.6 / 13 | 3.4 / 10 | 5.1 / 10 | 1.0 / 1 |
 
-### Orth Circuit Breakers WMDP Bio Robust over Tampering Configs for LoRA ranks
+### Circuit Breakers WMDP Bio Robust over Tampering Configs for LoRA ranks
 
 Unlearned models: all-module, pdbs=1, rm23, orth5, ret0, all 32 layers. Baseline: 42.97 / 45.10.
 
@@ -146,7 +146,7 @@ Tamper: AdamW, step 3000, 1ep, evaluated every 500.
 | cos/ws100/lr2e-4 | 41.5 | 35.8 | 34.8 | 32.6 | 35.6 | **35.5** | **32.7** | 29.8 | 27.2 | 24.7 | 38.1 |
 | const/wr01/lr2e-4 | 27.4 | 27.3 | 28.1 | 27.7 | 26.5 | 27.1 | 27.2 | 27.0 | 27.1 | 24.8 | 26.6 |
 
-### Orth Circuit Breakers MMLU over Tampering Configs for LoRA ranks
+### Circuit Breakers MMLU over Tampering Configs for LoRA ranks
 
 Tamper: AdamW, step 3000, 1ep, evaluated every 500.
 
@@ -159,7 +159,7 @@ Tamper: AdamW, step 3000, 1ep, evaluated every 500.
 | cos/ws100/lr2e-4 | 37.4 | 36.5 | 35.4 | 34.8 | 34.3 | **35.4** | **30.4** | 30.5 | 25.5 | 23.7 | 33.6 |
 | const/wr01/lr2e-4 | 27.7 | 27.3 | 27.4 | 26.5 | 25.7 | 25.7 | 26.4 | 26.4 | 26.0 | 25.3 | 23.9 |
 
-### Orth Circuit Breakers Best WMDP / MMLU over Tampering Configs by Rank
+### Circuit Breakers Best WMDP / MMLU over Tampering Configs by Rank
 
 Unlearned models: all-module, pdbs=1, rm23, orth5, ret0, all 32 layers. Baseline: 42.97 / 45.10. Values are the best found across all 6 tampering configs at each step.
 
@@ -191,7 +191,7 @@ Tamper: AdamW, 1ep, evaluated every 500 steps.
 | | MMLU | 22.9 | 29.5 | 31.4 | 33.7 | 36.0 | **36.6** | 36.6 |
 
 
-### Orth Circuit Breakers MMLU Restoration: WikiText Tamper on r8 and r64
+### Circuit Breakers MMLU Restoration: WikiText Tamper on r8 and r64
 
 Data: WikiText-103 only. Unlearned models: all-module, pdbs=1, rm23, orth5, ret0, all 32 layers. Baseline: 42.97 / 45.10.
 
@@ -224,7 +224,7 @@ Tamper: AdamW, 3000 steps, 1ep, evaluated every 500.
 | r=64 | const/wr01/lr2e-4 | WMDP | 26.73 | 26.61 | 26.84 | **27.88** | 26.73 | 26.50 | 27.30 | |
 | | | MMLU | 22.95 | 26.63 | 26.23 | 27.26 | 25.99 | 24.89 | **28.62** | |
 
-### Orth Circuit Breakers MMLU Restoration: Annealing Tamper on r8 and r64
+### Circuit Breakers MMLU Restoration: Annealing Tamper on r8 and r64
 
 Tamper: AdamW, 3000 steps, 1ep, evaluated every 500.
 
@@ -257,7 +257,7 @@ Data: Filtered annealing mix. Unlearned models: all-module, pdbs=1, rm23, orth5,
 | r=64 | const/wr01/lr2e-4 | WMDP | 26.73 | 26.73 | 24.54 | **27.07** | 26.61 | 23.96 | 25.35 | |
 | | | MMLU | 22.95 | 23.91 | **25.85** | 25.78 | 25.10 | 24.52 | 25.03 | |
 
-### Orth Circuit Breakers Benign Tamper Rerun: WMDP Bio Robust Step-by-Step
+### Circuit Breakers Benign Tamper Rerun: WMDP Bio Robust Step-by-Step
 
 Tamper: AdamW, evaluated every 500, batch_size=32.
 
@@ -284,7 +284,7 @@ Tamper: AdamW, evaluated every 500, batch_size=32.
 | r=32 | cos/ws100/lr2e-4 | -- | 29.5 / 35.2 | -- | -- | -- | -- | -- | |
 | r=32 | const/wr01/lr2e-4 | -- | 26.6 / 26.1 | -- | 24.5 / 28.3 | -- | -- | 28.2 / 27.9 | |
 
-### Orth Circuit Breakers Benign Tamper Rerun: WMDP Bio Robust
+### Circuit Breakers Benign Tamper Rerun: WMDP Bio Robust
 
 Attack dataset: WikiText + UltraChat (24000 chunks each). Unlearned models: all-module, pdbs=1, rm23, orth5, ret0, all 32 layers.
 
@@ -301,7 +301,7 @@ Tamper: AdamW, 3000 steps, 1ep, 48000 chunks, evaluated every 500, batch_size=32
 | cos/ws100/lr2e-4 | 38.0 | 32.4 | 29.5 |
 | const/wr01/lr2e-4 | 28.5 | 28.0 | 28.2 |
 
-### Orth Circuit Breakers Bio Chat Tamper: WMDP Bio Robust
+### Circuit Breakers Bio Chat Tamper: WMDP Bio Robust
 
 Attack dataset: WMDP-Bio + UltraChat (24000 chunks each). Unlearned models: all-module, pdbs=1, rm23, orth5, ret0, all 32 layers.
 
@@ -318,7 +318,7 @@ Tamper: AdamW, 3000 steps, 1ep, 48000 chunks, evaluated every 500, eval batch_si
 | cos/ws100/lr2e-4 | **41.6** | 26.7 | **42.1** |
 | const/wr01/lr2e-4 | 31.1 | 31.2 | 31.8 |
 
-### Orth Circuit Breakers Bio Chat Tamper: WMDP Bio Robust Step-by-Step
+### Circuit Breakers Bio Chat Tamper: WMDP Bio Robust Step-by-Step
 
 ~75% of eval subprocess calls failed (lm_eval torchrun crash). -- = eval failed. Re-evals pending.
 
@@ -435,7 +435,7 @@ Tamper: AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500
 
 | Algorithm | Starting WMDP | Starting MMLU | Best Tamper WMDP | Best Tamper MMLU | Tamper Resistant? |
 |-----------|---------------|---------------|------------------|------------------|-------------------|
-| Orth CB SFT (rm23/orth5) | 26.73% | 22.95% | 39.63% | 36.64% | Partial |
+| CB SFT (rm23/orth5) | 26.73% | 22.95% | 39.63% | 36.64% | Partial |
 | Sequential SFT (rm5) | 26.73% | 22.95% | 43.43% | 43.90% | No |
 | Tuned Lens SFT (rm5) | 23.39% | 24.65% | 28.34% | 26.78% | Yes |
 | Checkpoint Transfer SFT (rm2000) | 26.50% | 22.93% | 31.11% | 26.86% | Yes |
@@ -515,3 +515,23 @@ Target model: `EleutherAI/deep-ignorance-e2e-strong-filter`. Baseline: 34.56 / 4
 | | | MMLU | | 44.29 | 44.11 | 44.00 | | | | | | | | | | | | | | | | | | | - | - | |
 | cos/wr10/lr1e-4 | bio_forget_flagged | WMDP | 10000 | 34.56 | 34.79 | 34.45 | 34.33 | 34.10 | 34.56 | 33.64 | 32.37 | 34.56 | 34.10 | 35.48 | **36.64** | 36.29 | 35.94 | 36.06 | 35.71 | 36.29 | **36.64** | 35.83 | 35.94 | 36.06 | - | - | 1ep, job 2476232 |
 | | | MMLU | | 44.29 | **44.38** | 40.94 | 37.42 | 41.24 | 41.64 | 40.42 | 38.07 | 39.99 | 40.01 | 40.49 | 40.80 | 40.33 | 40.91 | 41.13 | 41.23 | 41.06 | 41.16 | 41.16 | 41.15 | 41.18 | - | - | |
+| cos/wr10/lr5e-5/bf16 | bio_forget_flagged | WMDP | 10000 | 34.79 | 33.53 | 33.41 | 34.79 | 34.91 | 36.75 | 35.37 | 36.64 | 36.18 | 36.87 | 37.21 | 36.52 | | | | | | | | | | - | - | bf16 mixed prec, DDP 4GPU, eb=16, 1ep, job 2547033 |
+| | | MMLU | | 44.43 | 44.08 | 43.63 | 42.43 | 43.12 | 43.68 | 42.73 | 43.04 | 43.23 | 43.04 | 42.86 | 42.87 | | | | | | | | | | - | - | |
+| cos/wr10/lr5e-5/bf16/eb32 | bio_forget_flagged | WMDP | 10000 | 34.79 | 33.87 | 33.99 | 35.02 | 35.37 | 35.48 | | | | | | | | | | | | | | | | - | - | bf16 mixed prec, DDP 4GPU, eb=32, 2ep, job 2547034 |
+| | | MMLU | | 44.43 | 44.10 | 42.99 | 43.02 | 43.23 | 42.74 | | | | | | | | | | | | | | | | - | - | |
+| cos/wr01/lr2e-5/bf16 | bio_forget | WMDP | ~10622 | 34.79 | 35.37 | 34.22 | 34.68 | 35.25 | 34.68 | 34.68 | 34.45 | 34.22 | 35.14 | 35.25 | 34.10 | | | | | | | | | | | | bf16 mixed prec, DDP 4GPU, eb=16, 2ep, job 2547266 |
+| | | MMLU | | 44.43 | 43.81 | 43.04 | 42.99 | 43.06 | 42.97 | 42.98 | 43.00 | 42.99 | 43.01 | 42.93 | 43.04 | | | | | | | | | | | | |
+| cos/wr01/lr2e-5/bf16/eb32 | bio_forget | WMDP | ~10622 | 34.79 | 34.91 | 34.68 | 35.60 | 35.37 | 35.25 | 35.14 | | | | | | | | | | | | | | | | | bf16 mixed prec, DDP 4GPU, eb=32, 4ep, job 2547267 |
+| | | MMLU | | 44.43 | 43.21 | 43.21 | 43.21 | 43.26 | 43.17 | 43.06 | | | | | | | | | | | | | | | | | |
+| lin/wu100/lr2e-5/fp16 | bio_forget | WMDP | ~10622 | 35.02 | 35.71 | 34.22 | 34.22 | 34.33 | 33.99 | 35.14 | | | | | | | | | | | | | | | | | fp16, linear sched, wu=100, FSDP 4GPU, eb=16, 2ep, job 2549035 |
+| | | MMLU | | 44.76 | 44.19 | 44.37 | 44.54 | 44.23 | 44.49 | 44.38 | | | | | | | | | | | | | | | | | |
+| lin/wu100/lr2e-5/fp16/eb32 | bio_forget | WMDP | ~10622 | 35.02 | 36.18 | 35.60 | 35.37 | | | | | | | | | | | | | | | | | | | | fp16, linear sched, wu=100, FSDP 4GPU, eb=32, 4ep, job 2549036 |
+| | | MMLU | | 44.76 | 45.11 | 45.03 | 44.85 | | | | | | | | | | | | | | | | | | | | |
+| lin/wu0/lr2e-5/fp16 | bio_forget | WMDP | ~10622 | 35.02 | 36.29 | 34.68 | 35.48 | 33.76 | 33.99 | 34.33 | | | | | | | | | | | | | | | | | fp16, linear sched, wu=0, FSDP 4GPU, eb=16, 2ep, job 2549037 |
+| | | MMLU | | 44.76 | 44.91 | 44.34 | 45.04 | 44.47 | 44.23 | 44.07 | | | | | | | | | | | | | | | | | |
+| lin/wu0/lr2e-5/fp16/eb32 | bio_forget | WMDP | ~10622 | 35.02 | 36.29 | 36.18 | 35.94 | | | | | | | | | | | | | | | | | | | | fp16, linear sched, wu=0, FSDP 4GPU, eb=32, 4ep, job 2549038 |
+| | | MMLU | | 44.76 | 44.77 | 44.75 | 44.68 | | | | | | | | | | | | | | | | | | | | |
+| lin/wu100/lr2e-5/bf16 | bio_forget | WMDP | ~10622 | 34.79 | 35.48 | 35.25 | 35.14 | 35.25 | 35.02 | 34.91 | 35.25 | 34.56 | 35.14 | 35.02 | | | | | | | | | | | | | bf16, linear sched, wu=100, DDP 4GPU, eb=16, 2ep, job 2547573 |
+| | | MMLU | | 44.43 | 43.94 | 43.17 | 43.04 | 43.15 | 43.18 | 43.04 | 43.09 | 43.00 | 43.03 | 43.09 | | | | | | | | | | | | | |
+| lin/wu100/lr2e-5/bf16/eb32 | bio_forget | WMDP | ~10622 | 34.79 | 34.68 | 35.02 | 34.33 | 34.33 | 34.79 | | | | | | | | | | | | | | | | | | bf16, linear sched, wu=100, DDP 4GPU, eb=32, 4ep, job 2547574 |
+| | | MMLU | | 44.43 | 43.36 | 43.28 | 43.26 | 43.18 | 43.14 | | | | | | | | | | | | | | | | | | |

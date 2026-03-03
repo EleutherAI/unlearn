@@ -74,16 +74,6 @@ def get_model_and_tokenizer(model_name, revision="main", dm="auto"):
         )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
-    if "Unlearning" in model_name:
-        tokenizer.add_special_tokens(
-            {
-                "pad_token": "<|padding|>",
-                "eos_token": "<|endoftext|>",
-                "bos_token": "<|startoftext|>",
-            }
-        )
-        tokenizer.padding_side = "left"
-    else:
-        tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
+    tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
 
     return model, tokenizer
