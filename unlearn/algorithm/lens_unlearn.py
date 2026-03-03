@@ -266,7 +266,7 @@ class RRTrainer(UnlearningTrainer):
 
 @dataclass
 class LensUnlearnConfig:
-    num_train_examples: int = 1024
+    num_train_examples: int = 0
     unlearn_corrupt: bool = False
     corrupt_ratio: float = 0.5
     corrupt_ds: Literal["rewritten", "shuffled"] = "rewritten"
@@ -276,7 +276,7 @@ class LensUnlearnConfig:
     pdbs: int = 4
     retain_coef: float = 5.0
     remove_coef: float = 5.0
-    lora_r: float = 16
+    lora_r: int = 16
     lora: bool = True
     layers: list[int] = field(default_factory=lambda: list(range(32)))
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"

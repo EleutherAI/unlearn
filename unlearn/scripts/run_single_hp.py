@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--orth_coef", type=float, required=True)
     parser.add_argument("--remove_coef", type=float, required=True)
     parser.add_argument("--retain_coef", type=float, default=2.0)
-    parser.add_argument("--num_train_examples", type=int, default=1024)
+    parser.add_argument("--num_train_examples", type=int, default=0)
     parser.add_argument("--pdbs", type=int, default=4)
     parser.add_argument(
         "--model_name", type=str, default="EleutherAI/deep-ignorance-unfiltered"

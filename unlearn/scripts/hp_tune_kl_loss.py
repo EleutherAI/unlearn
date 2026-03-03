@@ -13,7 +13,7 @@ from typing import Optional
 class HPConfig:
     retain_coef: float
     remove_coef: float
-    num_train_examples: int = 1024
+    num_train_examples: int = 0
     pdbs: int = 2
     lr: float = 0.001
 

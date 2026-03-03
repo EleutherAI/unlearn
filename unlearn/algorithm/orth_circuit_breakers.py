@@ -297,6 +297,8 @@ class RRTrainer(UnlearningTrainer):
             + circuit_breaker_coeff * circuit_breaker_loss
             + orth_coeff * orth_loss
         )
+        dummy_loss = 0.0 * sum(p.sum() for p in model.parameters() if p.requires_grad)
+        loss = loss + dummy_loss
 
         if (
             self.current_training_step % 32 == 0
@@ -316,7 +318,7 @@ class RRTrainer(UnlearningTrainer):
 
 @dataclass
 class OrthCircuitBreakerConfig:
-    num_train_examples: int = 1024
+    num_train_examples: int = 0
     unlearn_corrupt: bool = False
     corrupt_ratio: float = 0.5
     corrupt_ds: Literal["rewritten", "shuffled"] = "rewritten"
@@ -388,14 +390,9 @@ if __name__ == "__main__":
         ]
         print(f"Excluding LoRA layers: {run_cfg.exclude_lora_layers}")
 
-    # Target modules based on model type and lora_target setting
-    if "OLMo" in run_cfg.model_name:
-        attn_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
-        mlp_modules = ["gate_proj", "up_proj", "down_proj"]
-    else:
-        # GPT-NeoX style
-        attn_modules = ["query_key_value", "dense"]
-        mlp_modules = ["dense_h_to_4h", "dense_4h_to_h"]
+    # GPT-NeoX style
+    attn_modules = ["query_key_value", "dense"]
+    mlp_modules = ["dense_h_to_4h", "dense_4h_to_h"]
 
     if run_cfg.lora_target == "attn":
         target_modules = attn_modules

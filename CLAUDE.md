@@ -180,6 +180,13 @@ bash scripts/run_unlearn.sh -a seq --rm 5 --ret 0 --sft
 bash scripts/run_unlearn.sh -a cb --rm 23 --orth 10 --ret 0 -r 64
 ```
 
+Show most recent runs:
+
+```bash
+ls -lt runs/ | head -n 11
+scontrol show job job_id
+```
+
 ## Tamper Attacks
 
 Always launch tamper attacks with `torchrun --nproc_per_node=4` for DDP training on all 4 GPUs. The script auto-adjusts grad_accumulation to keep the effective batch size constant. Eval is submitted as async sbatch jobs.

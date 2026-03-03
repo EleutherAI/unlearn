@@ -145,30 +145,10 @@ python unlearn/reference/cas/finetune_attack.py \
 ## Model Paths
 - Best model: `models/EleutherAI/deep-ignorance-unfiltered_lens_ex8192_rm5.0_ret5.0`
 
-
 ## Archive
 
 ### Using a 4-bit reference model in SFT + AdamW
 
-| examples | steps | retain_coef | remove_coef | adam_lr | retain_loss | forget_loss | WMDP Robust | MMLU | Notes |
-|----------|-------|-------------|-------------|---------|-------------|-------------|-------------|------|-------|
-| -        | -     | -           | -           | -       | -           | -           | 42.97%      | 45.10% | Baseline |
-| 1024     | 32    | 5.0         | 5.0         | 1e-5    | 30.31       | 2.18        | 43.43%      | 45.09%    | Job 2045965 |
-| 1024     | 32    | 5.0         | 5.0         | 1e-4    | 167.60      | 2.05        | 43.55%      | 42.42%    | Job 2046753 |
-| examples | steps | retain_coef | remove_coef | adam_lr | retain_loss | forget_loss | WMDP Robust | MMLU | Notes |
-|----------|-------|-------------|-------------|---------|-------------|-------------|-------------|------|-------|
-| -        | -     | -           | -           | -       | -           | -           | 42.97%      | 45.10% | Baseline |
-| 1024     | 32    | 20.0        | 5.0         | 1e-3    | 11571.27    | 1.48        | 24.08%      | 26.90%    | Job 2047279 |
-| 1024     | 32    | 10.0        | 1.0         | 1e-3    | 11340.50    | 1.31        | 26.73%      | 22.95%    | Job 2062489 |
-| 1024     | 32    | 15.0        | 1.0         | 1e-3    | 11373.78    | 1.45        | 25.69%      | 25.51%    | Job 2062376 |
-| 1024     | 32    | 20.0        | 1.0         | 1e-3    | 11311.43    | 1.48        | 26.04%      | 25.57%    | Job 2062377 |
-| 1024     | 32    | 30.0        | 1.0         | 1e-3    | 10913.43    | 1.48        | 27.19%      | 22.95%    | Job 2062378 |
-| 1024     | 32    | 80.0        | 1.0         | 1e-3    | 11646.10    | 1.60        | 24.88%      | 23.59%    | Job 2075380 |
-| 1024     | 32    | 100.0       | 1.0         | 1e-3    | 11763.40    | 1.85        | 23.50%      | 24.65%    | Job 2075390 |
-| 1024     | 32    | 200.0       | 1.0         | 1e-3    | 12793.33    | 2.15        | 24.08%      | 26.89%    | Job 2075391 |
-| 1024     | 32    | 500.0       | 1.0         | 1e-3    | 11277.07    | 1.42        | 26.50%      | 22.95%    | Job 2075383 |
-
-
-**Note:** All runs above used a 4-bit quantized reference model for the KL retain loss, inflating retain_loss by ~48 (quantization noise floor). After this the retain_coeff schedule was also changed to start at 0.25x (ramping to 1.0x) instead of 0x, and lr warmup was added.
+The 4-bit quantized reference model for the KL retain loss inflated retain_loss by ~48 (quantization noise floor). After this the retain_coeff schedule was also changed to start at 0.25x (ramping to 1.0x) instead of 0x, and lr warmup was added.
 
 ### Using a high learning rate in SFT + AdamW

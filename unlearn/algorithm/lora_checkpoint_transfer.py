@@ -46,7 +46,7 @@ class MuonRRTrainer(RRTrainer):
 
 @dataclass
 class LoraCheckpointTransferConfig:
-    num_train_examples: int = 2048
+    num_train_examples: int = 0
     retain_coef: float = 5.0
     remove_coef: float = 5.0
     retain_kl_loss: bool = True
@@ -106,24 +106,13 @@ if __name__ == "__main__":
     )
 
     lora_layers_to_transform = list(range(max(run_cfg.layers) + 1))
-
-    if "OLMo" in run_cfg.model_name:
-        target_modules = [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "o_proj",
-            "gate_proj",
-            "up_proj",
-            "down_proj",
-        ]
-    else:
-        target_modules = [
-            "query_key_value",
-            "dense",
-            "dense_h_to_4h",
-            "dense_4h_to_h",
-        ]
+    
+    target_modules = [
+        "query_key_value",
+        "dense",
+        "dense_h_to_4h",
+        "dense_4h_to_h",
+    ]
 
     lora_config = LoraConfig(
         r=run_cfg.lora_r,

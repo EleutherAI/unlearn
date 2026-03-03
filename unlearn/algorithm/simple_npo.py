@@ -113,7 +113,7 @@ class SimpleNPOTrainer(Trainer):
 
 @dataclass
 class SimpleNPOConfig:
-    num_train_examples: int = 1024
+    num_train_examples: int = 0
     lr: float = 1e-3
     pdbs: int = 4
     lora_r: int = 16

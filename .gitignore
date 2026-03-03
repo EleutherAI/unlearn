@@ -174,7 +174,7 @@ cython_debug/
 .pypirc
 
 # Local directory for run artifacts
-runs/
+# runs/
 cache/
 
 wandb/
@@ -193,3 +193,7 @@ logs/
 retain_set_1024/
 
 models/
+
+
+*.sbatch
+*.png

@@ -231,7 +231,7 @@ class RRTrainer(UnlearningTrainer):
 
 @dataclass
 class BaseUnlearnConfig:
-    num_train_examples: int = 1024
+    num_train_examples: int = 0
     unlearn_corrupt: bool = False
     corrupt_ratio: float = 0.5
     corrupt_ds: Literal["rewritten", "shuffled"] = "rewritten"

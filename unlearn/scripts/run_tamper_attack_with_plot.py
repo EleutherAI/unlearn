@@ -159,7 +159,7 @@ class TamperAttackConfig:
         "models/EleutherAI/deep-ignorance-unfiltered_lens_ex8192_rm5.0_ret5.0"
     )
     output_dir: str = "runs/tamper_attack"
-    num_train_examples: int = 512
+    num_train_examples: int = 0  # 0 = use full dataset
     epochs: int = 1
     eval_every: int = 10
     lr: float = 2e-5
@@ -528,7 +528,7 @@ def get_model_and_tokenizer(model_name: str, precision: str = "bf16"):
         model = AutoModelForCausalLM.from_pretrained(
             model_name, device_map="auto", torch_dtype=dtype
         )
-    tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
 
     return model, tokenizer
@@ -695,7 +695,7 @@ def prepare_bio_examples(config: TamperAttackConfig, tokenizer):
 def prepare_dataset(config: TamperAttackConfig, tokenizer):
     if config.tamper_data == "bio_remove":
         dataset = prepare_bio_examples(config, tokenizer)
-        if config.num_train_examples < len(dataset):
+        if config.num_train_examples > 0 and config.num_train_examples < len(dataset):
             dataset = dataset.select(range(config.num_train_examples))
         print(f"Selected {len(dataset)} chunks")
     elif config.tamper_data == "benign":
@@ -774,7 +774,7 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
         print(f"Flagged docs: {len(dataset)} chunks")
     elif config.tamper_data == "bio_forget":
         dataset = prepare_bio_forget_corpus_examples(config, tokenizer)
-        if config.num_train_examples < len(dataset):
+        if config.num_train_examples > 0 and config.num_train_examples < len(dataset):
             dataset = dataset.select(range(config.num_train_examples))
         print(f"Selected {len(dataset)} chunks")
     elif config.tamper_data == "wikitext":
@@ -1132,8 +1132,8 @@ def parse_args():
     parser.add_argument(
         "--num_train_examples",
         type=int,
-        default=512,
-        help="Number of training chunks (2048-token). Source docs are fully chunked first, then this many chunks are selected.",
+        default=0,
+        help="Number of training chunks (2048-token). 0 = use full dataset. Source docs are fully chunked first, then this many chunks are selected.",
     )
     parser.add_argument(
         "--batch_size",

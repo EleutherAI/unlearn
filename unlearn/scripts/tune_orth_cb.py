@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 @dataclass
 class TuningConfig:
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"
-    num_train_examples: int = 1024
+    num_train_examples: int = 0
     pdbs: int = 4
     retain_coef: float = 5.0
     lm_eval_include_path: str = str(PROJECT_ROOT / "unlearn" / "lm_eval_tasks")
@@ -178,7 +178,7 @@ def main():
     parser.add_argument(
         "--model_name", type=str, default="EleutherAI/deep-ignorance-unfiltered"
     )
-    parser.add_argument("--num_train_examples", type=int, default=1024)
+    parser.add_argument("--num_train_examples", type=int, default=0)
     parser.add_argument("--pdbs", type=int, default=4)
     parser.add_argument("--retain_coef", type=float, default=5.0)
     args = parser.parse_args()

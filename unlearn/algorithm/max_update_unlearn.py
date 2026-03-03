@@ -210,7 +210,7 @@ class MaxUpdateConfig:
     same_sign_grads: bool = False
     sgd_update: bool = False
     element_norm: bool = True
-    num_train_examples: int = 1024
+    num_train_examples: int = 0
     epochs: int = 1
     unlearn_corrupt: bool = False
     corrupt_ratio: float = 0.5
