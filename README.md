@@ -43,6 +43,16 @@ Our algorithms use several design elements that may be stacked:
 - Greedy sequential layer-wise unlearning, using the base model layers in place of the tuned lens to "map" the activations at the layer currently being unlearned to the forget loss, and the updated model layers to map the same activations to the retain loss.
 - An auxiliary within-batch activation orthogonalization forget loss.
 
+## Per-Tokem Unlearning
+
+We implement several token selection methods for per-token unlearning:
+
+- Blocklist-based
+- Activations similarity to blocklist
+- Linear probe
+- Biorisk relevant SAE activations
+- Data attribution (MAGIC: https://arxiv.org/abs/2504.16430)
+
 # Analysis
 
 Unlearning objectives usually consist of a forget term and a retain term. We investigate several unlearning algorithms and find _even when the retain term is removed_, unlearning is not tamper resistant. Procedure:
