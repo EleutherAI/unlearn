@@ -18,6 +18,7 @@
 #   --pdbs            per-device batch size (default: per-algorithm)
 #   --sft             Use full-rank SFT instead of LoRA
 #   --orth            orth_coef for circuit breakers (default: 5)
+#   --muon            Use Muon optimizer instead of AdamW
 #   --time            SLURM time limit (default: 6:00:00)
 #   --dtype           Mixed precision: bf16 or fp16 (default: bf16)
 #   --extra           Extra args passed verbatim to the training script
@@ -35,6 +36,7 @@ EXAMPLES=""
 PDBS=""
 SFT=false
 ORTH=5
+MUON=false
 TIME="6:00:00"
 DTYPE="bf16"
 EXTRA=""
@@ -53,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         --sft)          SFT=true; shift ;;
         --lora)         SFT=false; shift ;;  # explicit LoRA (default)
         --orth)         ORTH="$2"; shift 2 ;;
+        --muon)         MUON=true; shift ;;
         --time)         TIME="$2"; shift 2 ;;
         --dtype)        DTYPE="$2"; shift 2 ;;
         --extra)        EXTRA="$2"; shift 2 ;;
@@ -64,6 +67,15 @@ done
 [[ -z "$ALG" ]] && { echo "Error: --algorithm is required (cb, checkpoint, lens, sequential)"; exit 1; }
 [[ -z "$RM" ]]  && { echo "Error: --rm is required"; exit 1; }
 [[ -z "$RET" ]] && { echo "Error: --ret is required"; exit 1; }
+
+if $MUON && ! $SFT; then
+    case "$ALG" in
+        lens|sequential|seq)
+            echo "Error: --muon requires --sft for algorithm $ALG (LoRA variant has no muon support)"
+            exit 1
+            ;;
+    esac
+fi
 
 # ── per-algorithm defaults ──
 REPO_ROOT="/projects/a6a/public/lucia/home/unlearn"
@@ -132,9 +144,14 @@ case "$ALG" in
         [[ -z "$EXAMPLES" ]] && EXAMPLES=1024
         [[ -z "$PDBS" ]] && PDBS=1
         if $SFT; then
+            if $MUON; then
+                LENS_MODULE="unlearn.algorithm.lens_unlearn_muon"
+            else
+                LENS_MODULE="unlearn.algorithm.lens_unlearn_sft"
+            fi
             TAG="lens_sft_ret${RET}_rm${RM}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.lens_unlearn_sft \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m $LENS_MODULE \
     --remove_coef=$RM --retain_coef=$RET \
     --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
     --lens_path=$LENS_DIR \
@@ -197,6 +214,15 @@ if [[ "$DTYPE" != "bf16" ]]; then
     TAG="${TAG}_${DTYPE}"
 fi
 TRAIN_CMD="$TRAIN_CMD --dtype=$DTYPE"
+
+# ── muon handling ──
+if $MUON; then
+    TAG="${TAG}_muon"
+    # lens uses a separate module; other algorithms use --optimizer=muon
+    if [[ "$ALG" != "lens" ]]; then
+        TRAIN_CMD="$TRAIN_CMD --optimizer=muon"
+    fi
+fi
 
 # recompute MODEL_PATH from updated TAG
 MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"

@@ -2,24 +2,25 @@ Manually test every change you make by running the appropriate script or CLI com
 
 # lm_eval: multi-GPU is mandatory
 
-Always use all 4 GPUs when running lm_eval, whether from a script, sbatch, or Python code. The ONLY correct way to get multi-GPU data parallelism is `torchrun`:
+Use an existing python script to launch LM eval programmatically rather than using the CLI.
 
-```bash
-torchrun --nproc_per_node=4 -m lm_eval --model hf \
-    --model_args pretrained=$MODEL ...
-```
+Always use all 4 GPUs when running the LM Evaluation Harness, whether from a script, sbatch, or Python code. The ONLY correct way to get multi-GPU data parallelism is `torchrun`: `torchrun --nproc_per_node=4 -m lm_eval_script` rather than `python -m lm_eval_script`.
 
-NEVER use `parallelize=True` in model_args — it does NOT give you data parallelism, it does pipeline parallelism on one process which is slower and not what we want.
+NEVER use `parallelize=True` — it does NOT give you data parallelism, it enables pipeline parallelism which slows the process.
 
-NEVER run `python -m lm_eval` — always use `torchrun --nproc_per_node=4 -m lm_eval`.
+NEVER use `simple_evaluate()` or call the CLI — always shell out to a python script using `torchrun`. In a training process kick off isolated sbatch processes to evaluate async.
 
-NEVER use `simple_evaluate()` or the lm_eval Python API for standalone evals — always shell out to `torchrun`. The Python API runs on a single GPU unless you set up the distributed environment yourself, which is more complex than just using torchrun.
+Always use 0-shot evaluation.
+
+Use `--verbosity WARNING`
+
+Always set `HF_HUB_OFFLINE=1` in sbatch scripts that run lm_eval. Without it, each torchrun worker hits the HuggingFace API to download datasets, and parallel jobs will get 429 rate-limited. All eval datasets (wmdp_bio_robust, mmlu) are already cached locally.
 
 # Experiment Logs and Unlearning Hyperparameters
 
 When you run a training experiment or hyperparameter tune save the settings and results to a markdown file for the algorithm in the experiment_logs directory. Avoid creating new tables - few tables makes comparison easy. Add the baseline model evaluation results as the first row. Save rows for the settings you are about to test first then add results as soon as they're available.
 
-Standard results columns: number of training steps, batch size, final training losses (each available separately logged loss term), MMLU accuracy, WMDP Bio Robust accuracy.
+Standard results columns: number of training steps, batch size, final training losses (each available separately logged loss term), MMLU accuracy, WMDP Bio Robust accuracy, experiment date.
 
 Don't vary the number of training steps on your own initiative.
 
@@ -44,6 +45,7 @@ Orth circuit breakers and simple NPO use DDP with gradient accumulation via torc
 ## Epochs and data budget
 
 Always use 1 epoch unless explicitly told otherwise. Control training length via `num_train_examples` (or dataset size) and batch size, not epochs.
+If there is insufficient data, report this.
 
 Before launching any training run, compute and report to the user:
 - Total unique training examples
@@ -54,7 +56,7 @@ If the effective epoch count exceeds 1, flag it.
 
 ## Learning rates
 
-When training a LoRA the most common successful value is lr=1e-3. When doing SFT it's around 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug.
+When training a LoRA the most common successful value is lr=1e-3 or below. When doing SFT it's around 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug.
 
 # Project Structure and Conventions
 
@@ -78,8 +80,6 @@ Don't write regular words in ALL CAPS. Don't use exclamation marks.
 
 Use `pre-commit run --all-files` if you forget to install precommit and it doesn't run in the hook.
 
-Open a dedicated tmux pane named "claude-commands" to run your commands so the user can monitor them.
-
 Don't add default run path values to low-level code - if a module calls another module, the higher level module should inject a unique run path (e.g. `runs/unlearn_algorithm_1/retain_5_remove_2`). The low-level code should make filenames or subdirectories within the given run path (e.g. `runs/unlearn_algorithm_1/retain_5_remove_2/tamper_results`).
 
 Don't save datasets to repository directories not in the .gitignore.
@@ -92,13 +92,6 @@ Mark tests requiring GPUs with `@pytest.mark.skipif(not torch.cuda.is_available(
 
 To run custom WMDP bio subset evals, include the task path: `--include_path "/home/a6a/lucia.a6a/unlearn/unlearn/lm_eval_tasks"`
 
-### lm_eval reference
-
-- MMLU uses 0-shot (default)
-- Use `--verbosity WARNING`
-- See the top of this file for multi-GPU requirements
-- Always set `HF_HUB_OFFLINE=1` in sbatch scripts that run lm_eval. Without it, each torchrun worker hits the HuggingFace API to download datasets, and parallel jobs will get 429 rate-limited. All eval datasets (wmdp_bio_robust, mmlu) are already cached locally.
-
 ### lm_eval dtype fix (lm_eval <=0.4.11 + transformers >=4.55)
 
 lm_eval 0.4.10/0.4.11 passes `dtype=get_dtype(dtype)` to `AutoModelForCausalLM.from_pretrained()`, but transformers >=4.55 does not pop `dtype` from kwargs, so it leaks through to the model constructor (e.g. `GPTNeoXForCausalLM.__init__()`) causing `TypeError: unexpected keyword argument 'dtype'`.
@@ -107,7 +100,7 @@ The fix is in `lm_eval/models/huggingface.py` — change `dtype=get_dtype(dtype)
 
 If lm_eval is upgraded past 0.4.11, check whether the upstream fix is included before reapplying.
 
-Example:
+If you must use the CLI, ensure 4 GPUs:
 ```bash
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
 
@@ -142,9 +135,19 @@ cp /tmp/myfile.tar.gz /projects/a6a/public/lucia/
 ```
 `/tmp` is local per login node so scp won't find files there if the user lands on a different node.
 
-## Launching Unlearning Jobs
+## Upload Models to HuggingFace
 
-Use `scripts/run_unlearn.sh` to submit any unlearning training + eval job:
+```bash
+python -m unlearn.scripts.upload_model \
+    --model_path models/EleutherAI/<model_name> \
+    --repo_id EleutherAI/<repo_name>
+```
+
+For LoRA models (directories with `adapter/` and `merged/` subdirs), this uploads the adapter by default. Add `--upload_merged` to upload the merged weights instead. Add `--private` for private repos.
+
+## Launch Unlearn Jobs
+
+Use `scripts/run_unlearn.sh` to submit unlearn post-training + eval:
 
 ```bash
 bash scripts/run_unlearn.sh -a <algorithm> --rm <remove_coef> --ret <retain_coef> [options]
@@ -163,6 +166,7 @@ Algorithms: `cb`, `checkpoint`/`ct`, `lens`, `sequential`/`seq`. LoRA by default
 | `--pdbs` | per-device batch size | per-algorithm |
 | `--sft` | Full-rank SFT instead of LoRA | false |
 | `--orth` | orth_coef (cb only) | 5 |
+| `--muon` | Use Muon optimizer instead of AdamW | false |
 | `--dtype` | Mixed precision: `bf16` or `fp16` | bf16 |
 | `--extra` | Extra args passed to training script | — |
 | `--dry-run` | Print sbatch without submitting | false |
@@ -187,7 +191,74 @@ ls -lt runs/ | head -n 11
 scontrol show job job_id
 ```
 
-## Tamper Attacks
+## Compute Stable Rank
+
+Compute stable rank (Frobenius norm squared / spectral norm squared) of a checkpoint's linear weight matrices:
+
+```bash
+python -m unlearn.scripts.compute_stable_rank \
+    --model_path models/EleutherAI/<model_name>
+
+python -m unlearn.scripts.compute_stable_rank \
+    --model_path EleutherAI/deep-ignorance-unfiltered \
+    --output_csv results/base_stable_rank.csv
+```
+
+Accepts local model directories or HF model IDs (resolved from cache). Saves per-module CSV to `<model_path>_stable_rank.csv` by default.
+
+For stable rank of weight **deltas** between two models, use `compute_erank` instead.
+
+## Launch Tamper Jobs
+
+Use `scripts/run_tamper.sh` to submit tamper (finetune) attack jobs:
+
+```bash
+bash scripts/run_tamper.sh --model <model_path> --steps <max_steps> [options]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--model`, `-m` | Path to unlearned model (required) | -- |
+| `--steps` | Max training steps (required) | -- |
+| `--lr` | Learning rate | 2e-5 |
+| `--eval_every` | Evaluate every N steps | 10 |
+| `--bs` | Per-device batch size | 1 |
+| `--grad_acc` | Gradient accumulation steps | 16 |
+| `--epochs` | Number of epochs | 1 |
+| `--data` | Tamper data source | bio_remove |
+| `--lora` | LoRA rank (0 = full finetune) | 0 |
+| `--lora_target` | LoRA targets: all, attn, mlp | all |
+| `--sched` | LR scheduler: constant, cosine, linear | constant |
+| `--dtype` | Precision: bf16 or fp16 | bf16 |
+| `--eval_mmlu` | Also evaluate MMLU | false |
+| `--optimizer` | adamw or muon | adamw |
+| `--examples`, `-n` | num_train_examples (0 = full) | 0 |
+| `--warmup_ratio` | Warmup ratio | 0.0 |
+| `--warmup_steps` | Warmup steps (overrides ratio) | 0 |
+| `--seed` | Random seed | 42 |
+| `--time` | SLURM time limit | 6:00:00 |
+| `--dry-run` | Print sbatch without submitting | false |
+
+Data sources: `bio_remove`, `benign`, `bio_chat`, `bio_forget_flagged`, `bio_forget`, `flagged`, `wikitext`, `annealing`.
+
+Results and plots save to `runs/tamper_<TAG>/`. SLURM output goes to `runs/tamper_<TAG>-<JOBID>.out`.
+
+Examples:
+```bash
+# Short tamper (quick recovery check)
+bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_cb_sft_ret0_rm23_orth10_lr1e-3 \
+    --steps 100 --eval_every 10
+
+# Long tamper (tamper-resistant techniques)
+bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_seq_sft_ret0_rm5_lr2e-4 \
+    --steps 5000 --eval_every 500 --eval_mmlu --bs 16 --grad_acc 1
+
+# Sweep: cosine schedule, fp16, LoRA
+bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_lens_sft_ret0_rm5_lr1e-3 \
+    --steps 200 --lr 1e-4 --sched cosine --dtype fp16 --lora 16
+```
+
+## Tamper Attack Guidelines
 
 Always launch tamper attacks with `torchrun --nproc_per_node=4` for DDP training on all 4 GPUs. The script auto-adjusts grad_accumulation to keep the effective batch size constant. Eval is submitted as async sbatch jobs.
 
@@ -199,16 +270,19 @@ Two modes for tamper attacks with `run_tamper_attack_with_plot.py`:
 - These runs recover to baseline quickly, so long runs waste compute
 
 **Long tamper (for tamper-resistant techniques):**
-- Use `--epochs=30 --eval_every=100` (~3000 steps, eval every 100)
+- Use `--eval_every=500` with enough data for 10k steps
+- Use batch size of 16
 - Use `--eval_mmlu` to collect both WMDP and MMLU metrics
 - Purpose: Compare aggressive unlearning (catastrophic forgetting) against random init or filtered model baselines
 - These runs stay near random chance, so need longer runs to confirm resistance holds
 - Catastrophic forgetting runs typically use `retain_coef=0` (no capability preservation)
 
 Standard learning rate for both: `--lr=2e-5`
+Sweep over a number of configurations, trying both fp16 and bf16, cosine and linear schedules, and learning rates in the 1e-5 to 1e-3 range.
 
 **Filtered model tamper attacks:**
-- Use `--lr` of 2e-5, 5e-5, or 1e-4 (not higher)
+- Use `--lr` of 2e-5, always less than 1e-4
 - lr=2e-4 causes WMDP to drop from 34.6% to 30.5% and MMLU from 46.0% to 37.9% (constant LR, epoch 5 runs)
 - lr=1e-4 with constant LR also degraded MMLU to 44.1%
-- Use `--lr_scheduler_type=cosine --warmup_ratio=0.1` with `--epochs=5 --eval_every=500 --eval_mmlu`
+- Use linear lr schedule
+- Use `--epochs=2 --eval_every=500 --eval_mmlu`
