@@ -49,7 +49,7 @@ Unlearning objectives usually consist of a forget term and a retain term. We inv
 
 - Hyperparameter tune an unlearning algorithm until good performance is attained.
 - Disable the retain term and repeat the unlearning process.
-- Fine-tune the model on the forget distribution and compare performance over time with our gold-standard Deep Ignorance filtered model. 
+- Fine-tune the model on the forget distribution and compare performance over training steps with our gold-standard Deep Ignorance filtered model. 
 
 # Development
 
