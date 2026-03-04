@@ -38,10 +38,10 @@ We collect activations on a forget dataset rewritten to be inaccurate, and then 
 
 Our algorithms use several design elements that may be stacked:
 
-- Maximum entropy loss
-- Per-module tuned lens unlearning
+- Maximum entropy loss.
+- Per-module tuned lens unlearning.
 - Greedy sequential layer-wise unlearning, using the base model layers in place of the tuned lens to "map" the activations at the layer currently being unlearned to the forget loss, and the updated model layers to map the same activations to the retain loss.
-- An auxiliary within-batch activation orthogonalization forget loss
+- An auxiliary within-batch activation orthogonalization forget loss.
 
 # Analysis
 
