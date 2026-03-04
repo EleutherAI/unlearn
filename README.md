@@ -61,6 +61,10 @@ Unlearning objectives usually consist of a forget term and a retain term. We inv
 - Disable the retain term and repeat the unlearning process.
 - Fine-tune the model on the forget distribution and compare performance over training steps with our gold-standard Deep Ignorance filtered model. 
 
+# Under Development
+
+- MAGIC-based detractor learning.
+
 # Development
 
 ```bash
