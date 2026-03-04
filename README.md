@@ -1,4 +1,6 @@
-This project contains novel unlearning algorithms and reusable components for developing and evaluating tamper resistance. Detailed instructions for using this repository may be found in the CLAUDE.md - please point your bot at the file and shoot me an email at lucia@eleuther.ai if you run into any trouble!
+This project contains novel unlearning algorithms and reusable components for developing and evaluating tamper resistance. 
+
+Detailed instructions for using this repository may be found in the CLAUDE.md. Please point your bot at the file. If you run into any trouble, please contact lucia@eleuther.ai.
 
 # Algorithms
 
