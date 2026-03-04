@@ -192,6 +192,8 @@ ls -lt runs/ | head -n 11
 scontrol show job job_id
 ```
 
+Users may also use cmd-shift-P <job_id> to open the log.
+
 ## Compute Stable Rank
 
 Compute stable rank (Frobenius norm squared / spectral norm squared) of a checkpoint's linear weight matrices:
