@@ -1,3 +1,56 @@
+This project contains novel unlearning algorithms and reusable components for developing and evaluating tamper resistance. Detailed instructions for using this repository may be found in the CLAUDE.md - please point your bot at the file and shoot me an email at lucia@eleuther.ai if you run into any trouble!
+
+# Algorithms
+
+## Tuned Lens Unlearn
+
+Unlearning algorithms often define a learning objective based on the token probabilities at the model output, such as entropy maximization or cross-entropy loss maximization. In general these objectives may be obtained by fine-tuning just the final few layers of the model, without removing the relevant information from the earlier layers. Tuned lens unlearning promotes deep information removal by applying a loss term at every module output.
+
+A tuned lens is a learned affine map that maps from a module's output activations to the model unembedding layer. The map is learned by unembedding the transformed module outputs using the base model's unembedding matrix, and then updating the map to minimize a standard cross entropy loss term.
+
+We train a tuned lens on each module and then unlearn each individual module through its tuned lens.
+
+## Orthogonal Circuit Breakers Unlearn
+
+The circuit breakers forget loss produces forget-sequence activations that are orthogonal to retain-sequence activations. Mechanistically, we can imagine a network learning a single linear transform at the first layer that can distinguish between forget and retain sequences that selects and transforms all forget activations in the same way. This would minimize the circuit breakers loss, but could be undone by learning a single transform.
+
+We introduce a within-batch forget sequence orthogonalization loss to incentivize each forget sequence to be scrambled using a unique learned transformation.
+
+## Sequential Unlearn
+
+We improve on the tuned lens unlearning by replacing the tuned lens with the final layers of the base (pre-unlearn) model. We unlearn each layer in sequence, mapping the activations at the layer currently being unlearned to the forget loss through the base model, and to the retain loss through the updated model weights.
+
+## Checkpoint Activation Transfer Unlearn
+
+Even if each layer undergoes sufficient training to induce random performance on a forget distribution, it may still retain knowledge in its weights that is simply not extracted by the training distribution. 
+
+We introduce the use of a teacher model that is deeply ignorant and trivially available - an early checkpoint of the same model. We select the latest checkpoint at which the model has near-random performance on the forget distribution, and then train an affine map from its activations to the fully-trained model using an MSE loss. This map accounts for linear transformations of the model weights that occur over the course of training (we also experiment with an SVCCA-based map; see https://arxiv.org/abs/1811.00225).
+
+We use a MSE loss term between the transformed early checkpoint activations which are deeply ignorant of the forget distribution, and the base model activations.
+
+Future work will apply a MSE loss term between the transformed and base model weights.
+
+## Rewritten Activation Transfer Unlearn
+
+We collect activations on a forget dataset rewritten to be inaccurate, and then "transfer" those activations to the corresponding original dataset items using a MSE loss.
+
+# Algorithm Components
+
+Our algorithms use several design elements that may be stacked:
+
+- Maximum entropy loss
+- Per-module tuned lens unlearning
+- Greedy sequential layer-wise unlearning, using the base model layers in place of the tuned lens to "map" the activations at the layer currently being unlearned to the forget loss, and the updated model layers to map the same activations to the retain loss.
+- An auxiliary within-batch activation orthogonalization forget loss
+
+# Analysis
+
+Unlearning objectives usually consist of a forget term and a retain term. We investigate several unlearning algorithms and find _even when the retain term is removed_, unlearning is not tamper resistant. Procedure:
+
+- Hyperparameter tune an unlearning algorithm until good performance is attained.
+- Disable the retain term and repeat the unlearning process.
+- Fine-tune the model on the forget distribution and compare performance over time with our gold-standard Deep Ignorance filtered model. 
+
 # Development
 
 ```bash
