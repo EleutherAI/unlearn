@@ -1,5 +1,7 @@
 Manually test every change you make by running the appropriate script or CLI command. When you run the script, frequently monitor the output until it appears to be running without issue, and then check again every 30 seconds until either 3 minutes have passed or multiple iteration loops of the main computation have run without error. If you find an error unrelated to your task, at minimum quote back the exact error to the user after completing your task.
 
+If you write a new script with multiple phases (e.g., training and then evaluation) remember to set your testing HPs such that both phases occur in quick succession (e.g. eval every 5 steps).
+
 # lm_eval: multi-GPU is mandatory
 
 Use an existing python script to launch LM eval programmatically rather than using the CLI.
