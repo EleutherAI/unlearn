@@ -12,7 +12,7 @@
 #   --model, -m       Path to unlearned model (required)
 #   --lr              Learning rate(s), comma-separated (default: see sweep below)
 #   --steps           Max training steps (default: 10000)
-#   --eval_every      Evaluate every N steps (default: 10)
+#   --eval_every      Evaluate every N steps (default: 500)
 #   --bs              Per-device batch size (default: 1)
 #   --grad_acc        Gradient accumulation steps (default: 4; effective batch = bs * grad_acc * 4 GPUs)
 #   --epochs          Number of epochs (default: 2)
@@ -38,7 +38,7 @@ set -euo pipefail
 MODEL=""
 LR=""
 STEPS=10000
-EVAL_EVERY=10
+EVAL_EVERY=500
 BS=1
 GRAD_ACC=4
 EPOCHS=2

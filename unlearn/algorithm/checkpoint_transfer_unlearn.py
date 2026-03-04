@@ -528,7 +528,7 @@ class CheckpointTransferConfig:
     affine_eval_examples: int = 10000
     upload_affine_to_hub: str | None = None
     affine_hub_private: bool = False
-    load_affine_from_hub: str | None = None
+    load_affine_from_hub: str | None = "EleutherAI/affine-checkpoint-transfer"
     retain_kl_loss: bool = True
     retain_ce_loss: bool = False
     epochs: int = 1
@@ -560,7 +560,7 @@ if __name__ == "__main__":
     print()
 
     model, tokenizer = get_model_and_tokenizer(
-        run_cfg.model_name, revision=run_cfg.revision
+        run_cfg.model_name, revision=run_cfg.revision, dtype=run_cfg.dtype
     )
     train_dataset = get_unlearning_dataset(run_cfg, tokenizer, NUM_PROC)
     train_dataset.tokenized_bio_remove_dataset = apply_keyword_masks(
@@ -598,11 +598,12 @@ if __name__ == "__main__":
         f"Loading checkpoint model: {run_cfg.checkpoint_name} @ "
         f"{run_cfg.checkpoint_revision}"
     )
+    ckpt_torch_dtype = torch.float16 if run_cfg.dtype == "fp16" else torch.bfloat16
     checkpoint_model = AutoModelForCausalLM.from_pretrained(
         run_cfg.checkpoint_name,
         revision=run_cfg.checkpoint_revision,
         device_map={"": local_rank},
-        torch_dtype=torch.float16,
+        torch_dtype=ckpt_torch_dtype,
     )
     checkpoint_model.eval()
     for param in checkpoint_model.parameters():
@@ -631,7 +632,7 @@ if __name__ == "__main__":
         for idx, transform in affine_transforms.items():
             affine_transforms[idx] = transform.to(
                 device=model.device if hasattr(model, "device") else "cuda",
-                dtype=torch.float16,
+                dtype=ckpt_torch_dtype,
             )
             affine_transforms[idx].requires_grad_(False)
         print(f"Loaded affine transforms for layers: {list(affine_transforms.keys())}")

@@ -198,7 +198,12 @@ class SequentialSftTrainer(Trainer):
                 total_loss
                 + torch.norm(cur_h - ref_h, dim=-1, p=2, dtype=torch.float).mean()
             )
-        return total_loss / len(target_layers)
+        # Gradient anchor: the L2 loss only uses intermediate hidden states,
+        # so lm_head/final_norm FSDP units don't receive gradients. With
+        # gradient accumulation (no_sync), their _post_backward_called stays
+        # True from the forget backward, causing an assertion on sync steps.
+        # Adding a zero-valued logits term ensures all FSDP units participate.
+        return total_loss / len(target_layers) + current_outputs.logits.sum() * 0
 
     def _compute_forget_loss(self, model, inputs, target_layer, target_device):
         """Forget loss using the model's actual output logits.
@@ -300,7 +305,7 @@ class SequentialSftTrainer(Trainer):
             if any(s in name for s in keep_strs):
                 grad_params += 1
             else:
-                param.grad = None
+                param.grad.zero_()
                 frozen_params += 1
 
         if current_step % 8 == 0 and int(os.environ.get("LOCAL_RANK", 0)) == 0:
@@ -387,7 +392,7 @@ class SequentialSftTrainer(Trainer):
         for name, param in model.named_parameters():
             if param.grad is not None and any(s in name for s in keep_strs):
                 retain_grads[name] = param.grad.clone()
-        model.zero_grad()
+        model.zero_grad(set_to_none=False)
 
         # Forget backward
         forget_loss = self._compute_forget_loss(

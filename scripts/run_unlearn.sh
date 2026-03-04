@@ -119,18 +119,18 @@ case "$ALG" in
     checkpoint|ct)
         [[ -z "$LR" ]] && LR="1e-3"
         [[ -z "$EXAMPLES" ]] && EXAMPLES=2048
-        [[ -z "$PDBS" ]] && PDBS=4
+        [[ -z "$PDBS" ]] && PDBS=1
         if $SFT; then
             TAG="ct_sft_ret${RET}_rm${RM}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="python -m unlearn.algorithm.checkpoint_transfer_unlearn \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.checkpoint_transfer_unlearn \
     --remove_coef=$RM --retain_coef=$RET \
     --lora=False --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
     --load_affine_from_hub=EleutherAI/affine-checkpoint-transfer \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
-            TRAIN_GPUS="0,"
+            TRAIN_GPUS="0,1,2,3"
         else
             TAG="ct_lora_ret${RET}_rm${RM}_r${RANK}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"

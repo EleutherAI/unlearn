@@ -374,7 +374,7 @@ if __name__ == "__main__":
     print()
 
     model, tokenizer = get_model_and_tokenizer(
-        run_cfg.model_name, revision=run_cfg.revision
+        run_cfg.model_name, revision=run_cfg.revision, dtype=run_cfg.dtype
     )
 
     train_dataset = get_unlearning_dataset(run_cfg, tokenizer, NUM_PROC)

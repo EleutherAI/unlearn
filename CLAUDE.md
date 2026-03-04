@@ -267,6 +267,30 @@ Submit via sbatch for GPU access:
 sbatch unlearn/scripts/train_affine.sbatch [upload_repo]
 ```
 
+## Evaluate Raw Activation MSE
+
+Measure per-layer MSE between two model checkpoints with no affine transform applied. Provides a baseline for how far apart hidden-state activations are in the raw representation space.
+
+```bash
+python -m unlearn.scripts.eval_raw_mse \
+    --source_model EleutherAI/deep-ignorance-pretraining-stage-unfiltered \
+    --source_revision global_step38144 \
+    --target_model EleutherAI/deep-ignorance-unfiltered \
+    --num_examples 10000 \
+    --batch_size 4
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--source_model` | First model (checkpoint) | `EleutherAI/deep-ignorance-pretraining-stage-unfiltered` |
+| `--source_revision` | Revision of source model | `global_step38144` |
+| `--target_model` | Second model (base) | `EleutherAI/deep-ignorance-unfiltered` |
+| `--target_revision` | Revision of target model | `main` |
+| `--layers` | Layer spec: `0-31` or `0,5,10` | `0-31` |
+| `--num_examples` | Number of eval examples | `10000` |
+| `--batch_size` | Batch size for forward passes | `4` |
+| `--use_bio_retain` | Include bio-retain corpus | `false` |
+
 ## Launch Tamper Jobs
 
 Use `scripts/run_tamper.sh` to submit tamper (finetune) attack jobs. With no overrides it submits 5 parallel sbatch jobs:

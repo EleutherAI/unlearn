@@ -373,6 +373,13 @@ if __name__ == "__main__":
     parser.add_arguments(MaxUpdateConfig, dest="run_cfg")
     run_cfg = parser.parse_args().run_cfg
 
+    assert run_cfg.retain_coef > 0, (
+        "retain_coef must be > 0 for max update unlearning. "
+        "At initialization diff = param - w0 = 0, so the update term gradient "
+        "is zero. Without SFT loss to bootstrap parameter movement, the model "
+        "never leaves the fixed point."
+    )
+
     print("Parsed arguments:")
     for arg, value in vars(run_cfg).items():
         print(f"  {arg}: {value}")
