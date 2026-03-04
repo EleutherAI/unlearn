@@ -204,7 +204,7 @@ case "$ALG" in
     maxupdate|mu)
         [[ -z "$LR" ]] && LR="2e-4"
         [[ -z "$EXAMPLES" ]] && EXAMPLES=1024
-        [[ -z "$PDBS" ]] && PDBS=4
+        [[ -z "$PDBS" ]] && PDBS=1
         if $SFT; then
             TAG="mu_sft_ret${RET}_up${RM}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
@@ -252,18 +252,23 @@ if $MUON; then
     fi
 fi
 
-# recompute MODEL_PATH from updated TAG
-MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-if [[ "$EVAL_MODEL" == *"/merged" ]]; then
-    EVAL_MODEL="$MODEL_PATH/merged"
-else
-    EVAL_MODEL="$MODEL_PATH"
-fi
-# update save_path in TRAIN_CMD
-TRAIN_CMD=$(echo "$TRAIN_CMD" | sed "s|--save_path=[^ ]*|--save_path=$MODEL_PATH|")
+# ── sweep over LRs (comma-separated) ──
+IFS=',' read -ra LR_ARRAY <<< "$LR"
 
-JOB_NAME="unlearn-${TAG}"
-OUT_FILE="$REPO_ROOT/runs/${TAG}-%j.out"
+for SWEEP_LR in "${LR_ARRAY[@]}"; do
+
+CUR_TAG=$(echo "$TAG" | sed "s|lr${LR}|lr${SWEEP_LR}|")
+CUR_MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${CUR_TAG}"
+if [[ "$EVAL_MODEL" == *"/merged" ]]; then
+    CUR_EVAL_MODEL="$CUR_MODEL_PATH/merged"
+else
+    CUR_EVAL_MODEL="$CUR_MODEL_PATH"
+fi
+CUR_TRAIN_CMD=$(echo "$TRAIN_CMD" | sed "s|--lr=${LR}|--lr=${SWEEP_LR}|")
+CUR_TRAIN_CMD=$(echo "$CUR_TRAIN_CMD" | sed "s|--save_path=[^ ]*|--save_path=$CUR_MODEL_PATH|")
+
+JOB_NAME="unlearn-${CUR_TAG}"
+OUT_FILE="$REPO_ROOT/runs/${CUR_TAG}-%j.out"
 
 # ── generate sbatch script ──
 SBATCH_SCRIPT=$(cat <<SBEOF
@@ -277,7 +282,7 @@ SBATCH_SCRIPT=$(cat <<SBEOF
 #SBATCH --output=$OUT_FILE
 
 echo "============================================"
-echo "$TAG"
+echo "$CUR_TAG"
 echo "Job ID: \$SLURM_JOB_ID"
 echo "Started: \$(date)"
 echo "============================================"
@@ -309,10 +314,10 @@ fi
 cd $REPO_ROOT
 
 echo "===== Training ====="
-$TRAIN_CMD
+$CUR_TRAIN_CMD
 
-if [ ! -d "$EVAL_MODEL" ]; then
-    echo "ERROR: Model not found at $EVAL_MODEL"
+if [ ! -d "$CUR_EVAL_MODEL" ]; then
+    echo "ERROR: Model not found at $CUR_EVAL_MODEL"
     exit 1
 fi
 
@@ -321,12 +326,12 @@ echo "===== WMDP + MMLU Eval ====="
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
 export HF_HUB_OFFLINE=1
 
-OUTPUT_JSON="$REPO_ROOT/runs/evals/eval_results_$TAG.json"
+OUTPUT_JSON="$REPO_ROOT/runs/evals/eval_results_$CUR_TAG.json"
 TASKS="wmdp_bio_robust,mmlu"
 
 JOB_ID=\$(sbatch --parsable \
     "$REPO_ROOT/unlearn/scripts/eval_checkpoint.sbatch" \
-    "$MODEL_PATH" \
+    "$CUR_MODEL_PATH" \
     "\$OUTPUT_JSON" \
     "\$TASKS")
 
@@ -341,7 +346,9 @@ if $DRY_RUN; then
 else
     TMPSCRIPT=$(mktemp /tmp/unlearn_XXXXXX.sbatch)
     echo "$SBATCH_SCRIPT" > "$TMPSCRIPT"
-    echo "Submitting: $TAG"
+    echo "Submitting: $CUR_TAG"
     sbatch "$TMPSCRIPT"
     rm "$TMPSCRIPT"
 fi
+
+done

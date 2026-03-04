@@ -216,7 +216,7 @@ class MaxUpdateConfig:
     corrupt_ratio: float = 0.5
     corrupt_ds: str = "rewritten"
     lr: float = 2e-4
-    pdbs: int = 4
+    pdbs: int = 1
     lora: bool = False
     lora_r: int = 16
     layers: list[int] = field(default_factory=lambda: list(range(32)))
@@ -246,6 +246,9 @@ if __name__ == "__main__":
     )
 
     train_dataset = get_unlearning_dataset(run_cfg, tokenizer, NUM_PROC)
+
+    if run_cfg.dtype == "fp16":
+        model = model.float()
 
     if not run_cfg.lora:
         for param in model.parameters():
