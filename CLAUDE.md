@@ -153,7 +153,7 @@ Use `scripts/run_unlearn.sh` to submit unlearn post-training + eval:
 bash scripts/run_unlearn.sh -a <algorithm> --rm <remove_coef> --ret <retain_coef> [options]
 ```
 
-Algorithms: `cb`, `checkpoint`/`ct`, `lens`, `sequential`/`seq`. LoRA by default; add `--sft` for full-rank.
+Algorithms: `cb`, `checkpoint`/`ct`, `lens`, `sequential`/`seq`, `maxupdate`/`mu`. LoRA by default; add `--sft` for full-rank. For `maxupdate`, `--rm` maps to `update_coef`.
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -182,6 +182,7 @@ bash scripts/run_unlearn.sh -a checkpoint --rm 5 --ret 5 --rank 16 --lr 2e-4
 bash scripts/run_unlearn.sh -a lens --rm 5 --ret 0 -r 32
 bash scripts/run_unlearn.sh -a seq --rm 5 --ret 0 --sft
 bash scripts/run_unlearn.sh -a cb --rm 23 --orth 10 --ret 0 -r 64
+bash scripts/run_unlearn.sh -a mu --rm 10 --ret 1 --sft
 ```
 
 Show most recent runs:
@@ -210,34 +211,45 @@ For stable rank of weight **deltas** between two models, use `compute_erank` ins
 
 ## Launch Tamper Jobs
 
-Use `scripts/run_tamper.sh` to submit tamper (finetune) attack jobs:
+Use `scripts/run_tamper.sh` to submit tamper (finetune) attack jobs. With no overrides it submits 5 parallel sbatch jobs:
+
+| # | LR | dtype | schedule |
+|---|-----|-------|----------|
+| 1 | 1e-5 | fp16 | linear |
+| 2 | 2e-5 | fp16 | linear |
+| 3 | 8e-5 | fp16 | linear |
+| 4 | 2e-5 | bf16 | linear |
+| 5 | 2e-5 | fp16 | cosine |
 
 ```bash
-bash scripts/run_tamper.sh --model <model_path> --steps <max_steps> [options]
+bash scripts/run_tamper.sh --model <model_path> [options]
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--model`, `-m` | Path to unlearned model (required) | -- |
-| `--steps` | Max training steps (required) | -- |
-| `--lr` | Learning rate | 2e-5 |
+| `--lr` | Learning rate(s), comma-separated | (see sweep) |
+| `--steps` | Max training steps | 10000 |
 | `--eval_every` | Evaluate every N steps | 10 |
 | `--bs` | Per-device batch size | 1 |
-| `--grad_acc` | Gradient accumulation steps | 16 |
-| `--epochs` | Number of epochs | 1 |
+| `--grad_acc` | Gradient accumulation steps | 4 |
+| `--epochs` | Number of epochs | 2 |
 | `--data` | Tamper data source | bio_remove |
 | `--lora` | LoRA rank (0 = full finetune) | 0 |
 | `--lora_target` | LoRA targets: all, attn, mlp | all |
-| `--sched` | LR scheduler: constant, cosine, linear | constant |
-| `--dtype` | Precision: bf16 or fp16 | bf16 |
-| `--eval_mmlu` | Also evaluate MMLU | false |
+| `--sched` | LR scheduler: constant, cosine, linear | linear |
+| `--dtype` | Precision: bf16 or fp16 | fp16 |
+| `--no_eval_mmlu` | Disable MMLU evaluation | (enabled) |
 | `--optimizer` | adamw or muon | adamw |
 | `--examples`, `-n` | num_train_examples (0 = full) | 0 |
 | `--warmup_ratio` | Warmup ratio | 0.0 |
 | `--warmup_steps` | Warmup steps (overrides ratio) | 0 |
 | `--seed` | Random seed | 42 |
 | `--time` | SLURM time limit | 6:00:00 |
+| `--short` | Short tamper: 100 steps, eval every 10 | false |
 | `--dry-run` | Print sbatch without submitting | false |
+
+Effective batch size 16 (bs=1 * grad_acc=4 * 4 GPUs), 2 epochs of 10k steps, MMLU + WMDP eval every 10 steps. Overriding any of `--lr`, `--dtype`, or `--sched` switches from the 5-config sweep to custom mode (sweeping the given LRs with the given dtype/sched).
 
 Data sources: `bio_remove`, `benign`, `bio_chat`, `bio_forget_flagged`, `bio_forget`, `flagged`, `wikitext`, `annealing`.
 
@@ -245,17 +257,16 @@ Results and plots save to `runs/tamper_<TAG>/`. SLURM output goes to `runs/tampe
 
 Examples:
 ```bash
-# Short tamper (quick recovery check)
-bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_cb_sft_ret0_rm23_orth10_lr1e-3 \
-    --steps 100 --eval_every 10
+# Default 5-config sweep
+bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_cb_sft_ret0_rm23_orth10_lr1e-3
 
-# Long tamper (tamper-resistant techniques)
+# Single LR (uses fp16/linear defaults)
 bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_seq_sft_ret0_rm5_lr2e-4 \
-    --steps 5000 --eval_every 500 --eval_mmlu --bs 16 --grad_acc 1
+    --lr 2e-5
 
-# Sweep: cosine schedule, fp16, LoRA
+# Custom LR sweep with cosine schedule and LoRA
 bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_lens_sft_ret0_rm5_lr1e-3 \
-    --steps 200 --lr 1e-4 --sched cosine --dtype fp16 --lora 16
+    --lr 1e-5,5e-5,1e-4 --sched cosine --lora 16
 ```
 
 ## Tamper Attack Guidelines

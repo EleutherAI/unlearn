@@ -7,9 +7,10 @@
 #   bash scripts/run_unlearn.sh --algorithm sequential --rm 5 --ret 0 --sft --lr 2e-4
 #   bash scripts/run_unlearn.sh --algorithm cb --rm 23 --orth 5 --ret 0 --rank 8
 #   bash scripts/run_unlearn.sh --algorithm checkpoint --rm 5 --ret 5 --sft --lr 2e-4
+#   bash scripts/run_unlearn.sh --algorithm maxupdate --rm 10 --ret 1 --sft
 #
 # Options:
-#   --algorithm, -a   Algorithm: cb, checkpoint, lens, sequential (required)
+#   --algorithm, -a   Algorithm: cb, checkpoint, lens, sequential, maxupdate (required)
 #   --rm              remove_coef (required)
 #   --ret             retain_coef (required)
 #   --rank, -r        LoRA rank (default: 16, ignored with --sft)
@@ -64,13 +65,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -z "$ALG" ]] && { echo "Error: --algorithm is required (cb, checkpoint, lens, sequential)"; exit 1; }
+[[ -z "$ALG" ]] && { echo "Error: --algorithm is required (cb, checkpoint, lens, sequential, maxupdate)"; exit 1; }
 [[ -z "$RM" ]]  && { echo "Error: --rm is required"; exit 1; }
 [[ -z "$RET" ]] && { echo "Error: --ret is required"; exit 1; }
 
 if $MUON && ! $SFT; then
     case "$ALG" in
-        lens|sequential|seq)
+        lens|sequential|seq|maxupdate|mu)
             echo "Error: --muon requires --sft for algorithm $ALG (LoRA variant has no muon support)"
             exit 1
             ;;
@@ -200,8 +201,35 @@ case "$ALG" in
         fi
         ;;
 
+    maxupdate|mu)
+        [[ -z "$LR" ]] && LR="2e-4"
+        [[ -z "$EXAMPLES" ]] && EXAMPLES=1024
+        [[ -z "$PDBS" ]] && PDBS=4
+        if $SFT; then
+            TAG="mu_sft_ret${RET}_up${RM}_lr${LR}"
+            MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.max_update_unlearn \
+    --update_coef=$RM --retain_coef=$RET \
+    --lora=False --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --model_name=EleutherAI/deep-ignorance-unfiltered \
+    --save_path=$MODEL_PATH $EXTRA"
+            EVAL_MODEL="$MODEL_PATH"
+            TRAIN_GPUS="0,1,2,3"
+        else
+            TAG="mu_lora_ret${RET}_up${RM}_r${RANK}_lr${LR}"
+            MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.max_update_unlearn \
+    --update_coef=$RM --retain_coef=$RET \
+    --lora=True --lora_r=$RANK --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --model_name=EleutherAI/deep-ignorance-unfiltered \
+    --save_path=$MODEL_PATH $EXTRA"
+            EVAL_MODEL="$MODEL_PATH"
+            TRAIN_GPUS="0,1,2,3"
+        fi
+        ;;
+
     *)
-        echo "Unknown algorithm: $ALG (use cb, checkpoint, lens, sequential)"
+        echo "Unknown algorithm: $ALG (use cb, checkpoint, lens, sequential, maxupdate)"
         exit 1
         ;;
 esac

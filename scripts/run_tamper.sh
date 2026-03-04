@@ -1,59 +1,60 @@
 #!/bin/bash
-# Launch a tamper (finetune) attack job on an unlearned model.
+# Launch tamper (finetune) attack jobs on an unlearned model.
+# By default submits 5 parallel sbatch jobs sweeping LR, dtype, and schedule:
+#   fp16/linear at lr=1e-5, 2e-5, 8e-5  +  bf16/linear at lr=2e-5  +  fp16/cosine at lr=2e-5
 #
 # Usage:
-#   bash scripts/run_tamper.sh --model models/EleutherAI/deep-ignorance-unfiltered_cb_sft_ret0_rm23_orth10_lr1e-3 \
-#       --lr 2e-5 --steps 100 --eval_every 10
-#   bash scripts/run_tamper.sh --model models/EleutherAI/my_model \
-#       --lr 2e-5 --steps 5000 --eval_every 500 --eval_mmlu --data bio_remove
-#   bash scripts/run_tamper.sh --model models/EleutherAI/my_model \
-#       --lr 1e-4 --steps 200 --sched cosine --dtype fp16 --lora 16
+#   bash scripts/run_tamper.sh -m models/EleutherAI/deep-ignorance-unfiltered_cb_sft_ret0_rm23_orth10_lr1e-3
+#   bash scripts/run_tamper.sh -m models/EleutherAI/my_model --lr 2e-5
+#   bash scripts/run_tamper.sh -m models/EleutherAI/my_model --lr 1e-5,2e-5,1e-4 --sched cosine
 #
 # Options:
 #   --model, -m       Path to unlearned model (required)
-#   --lr              Learning rate (default: 2e-5)
-#   --steps           Max training steps (required)
+#   --lr              Learning rate(s), comma-separated (default: see sweep below)
+#   --steps           Max training steps (default: 10000)
 #   --eval_every      Evaluate every N steps (default: 10)
 #   --bs              Per-device batch size (default: 1)
-#   --grad_acc        Gradient accumulation steps (default: 16)
-#   --epochs          Number of epochs (default: 1)
+#   --grad_acc        Gradient accumulation steps (default: 4; effective batch = bs * grad_acc * 4 GPUs)
+#   --epochs          Number of epochs (default: 2)
 #   --data            Tamper data: bio_remove, benign, bio_chat, bio_forget_flagged,
 #                     bio_forget, flagged, wikitext, annealing (default: bio_remove)
 #   --lora            LoRA rank for tamper attack (0 = full finetune, default: 0)
 #   --lora_target     LoRA target modules: all, attn, mlp (default: all)
-#   --sched           LR scheduler: constant, cosine, linear (default: constant)
+#   --sched           LR scheduler: constant, cosine, linear (default: linear)
 #   --warmup_ratio    Warmup ratio (default: 0.0)
 #   --warmup_steps    Warmup steps, overrides ratio (default: 0)
-#   --dtype           Precision: bf16 or fp16 (default: bf16)
-#   --eval_mmlu       Also evaluate MMLU
+#   --dtype           Precision: bf16 or fp16 (default: fp16)
+#   --no_eval_mmlu    Disable MMLU evaluation
 #   --optimizer       Optimizer: adamw or muon (default: adamw)
 #   --examples, -n    num_train_examples (default: 0 = full dataset)
 #   --seed            Random seed (default: 42)
 #   --time            SLURM time limit (default: 6:00:00)
-#   --dry-run         Print sbatch script without submitting
+#   --short           Short tamper: 100 steps, eval every 10, default configs
+#   --dry-run         Print sbatch script(s) without submitting
 
 set -euo pipefail
 
 # ── defaults ──
 MODEL=""
-LR="2e-5"
-STEPS=""
+LR=""
+STEPS=10000
 EVAL_EVERY=10
 BS=1
-GRAD_ACC=16
-EPOCHS=1
+GRAD_ACC=4
+EPOCHS=2
 DATA="bio_remove"
 LORA=0
 LORA_TARGET="all"
-SCHED="constant"
+SCHED=""
 WARMUP_RATIO="0.0"
 WARMUP_STEPS=0
-DTYPE="bf16"
-EVAL_MMLU=false
+DTYPE=""
+EVAL_MMLU=true
 OPTIMIZER="adamw"
 EXAMPLES=0
 SEED=42
 TIME="6:00:00"
+SHORT=false
 DRY_RUN=false
 
 # ── parse args ──
@@ -74,36 +75,74 @@ while [[ $# -gt 0 ]]; do
         --warmup_steps)   WARMUP_STEPS="$2"; shift 2 ;;
         --dtype)          DTYPE="$2"; shift 2 ;;
         --eval_mmlu)      EVAL_MMLU=true; shift ;;
+        --no_eval_mmlu)   EVAL_MMLU=false; shift ;;
         --optimizer)      OPTIMIZER="$2"; shift 2 ;;
         --examples|-n)    EXAMPLES="$2"; shift 2 ;;
         --seed)           SEED="$2"; shift 2 ;;
         --time)           TIME="$2"; shift 2 ;;
+        --short)          SHORT=true; shift ;;
         --dry-run)        DRY_RUN=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
 [[ -z "$MODEL" ]] && { echo "Error: --model is required"; exit 1; }
-[[ -z "$STEPS" ]] && { echo "Error: --steps is required"; exit 1; }
 
-# ── build tag from model name + tamper config ──
+if $SHORT; then
+    STEPS=100
+    EVAL_EVERY=10
+    TIME="1:00:00"
+fi
+
 REPO_ROOT="/projects/a6a/public/lucia/home/unlearn"
 
 # Extract model tag from path (last path component, strip common prefix)
 MODEL_TAG=$(basename "$MODEL")
 MODEL_TAG=${MODEL_TAG#deep-ignorance-unfiltered_}
 
-TAG="tamper_${MODEL_TAG}_${DATA}_lr${LR}_s${STEPS}_${SCHED}_${DTYPE}"
+# Resolve model to absolute path if relative
+if [[ "$MODEL" != /* ]]; then
+    MODEL="${REPO_ROOT}/${MODEL}"
+fi
+
+EFF_BATCH=$(( BS * GRAD_ACC * 4 ))
+echo "Effective batch size: ${BS} * ${GRAD_ACC} * 4 GPUs = ${EFF_BATCH}"
+
+# ── build config list: each entry is lr:dtype:sched ──
+# If user didn't override lr/dtype/sched, use the default 5-config sweep.
+# Otherwise, sweep over the specified LRs with the specified dtype/sched.
+CONFIGS=()
+if [[ -z "$LR" && -z "$DTYPE" && -z "$SCHED" ]]; then
+    CONFIGS=(
+        "1e-5:fp16:linear"
+        "2e-5:fp16:linear"
+        "8e-5:fp16:linear"
+        "2e-5:bf16:linear"
+        "2e-5:fp16:cosine"
+    )
+else
+    [[ -z "$LR" ]] && LR="2e-5"
+    [[ -z "$DTYPE" ]] && DTYPE="fp16"
+    [[ -z "$SCHED" ]] && SCHED="linear"
+    IFS=',' read -ra LR_ARRAY <<< "$LR"
+    for lr_val in "${LR_ARRAY[@]}"; do
+        CONFIGS+=("${lr_val}:${DTYPE}:${SCHED}")
+    done
+fi
+
+echo "Submitting ${#CONFIGS[@]} job(s)"
+
+# ── submit one job per config ──
+for CFG in "${CONFIGS[@]}"; do
+
+IFS=':' read -r CURRENT_LR CURRENT_DTYPE CURRENT_SCHED <<< "$CFG"
+
+TAG="tamper_${MODEL_TAG}_${DATA}_lr${CURRENT_LR}_s${STEPS}_${CURRENT_SCHED}_${CURRENT_DTYPE}"
 if [[ "$LORA" -gt 0 ]]; then
     TAG="${TAG}_lora${LORA}_${LORA_TARGET}"
 fi
 if [[ "$OPTIMIZER" != "adamw" ]]; then
     TAG="${TAG}_${OPTIMIZER}"
-fi
-
-# Resolve model to absolute path if relative
-if [[ "$MODEL" != /* ]]; then
-    MODEL="${REPO_ROOT}/${MODEL}"
 fi
 
 OUTPUT_DIR="${REPO_ROOT}/runs/${TAG}"
@@ -114,7 +153,7 @@ OUT_FILE="${REPO_ROOT}/runs/${TAG}-%j.out"
 TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with_plot \
     --model_name=${MODEL} \
     --output_dir=${OUTPUT_DIR} \
-    --lr=${LR} \
+    --lr=${CURRENT_LR} \
     --max_steps=${STEPS} \
     --eval_every=${EVAL_EVERY} \
     --batch_size=${BS} \
@@ -123,10 +162,10 @@ TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with
     --tamper_data=${DATA} \
     --lora_r=${LORA} \
     --lora_target=${LORA_TARGET} \
-    --lr_scheduler_type=${SCHED} \
+    --lr_scheduler_type=${CURRENT_SCHED} \
     --warmup_ratio=${WARMUP_RATIO} \
     --warmup_steps=${WARMUP_STEPS} \
-    --precision=${DTYPE} \
+    --precision=${CURRENT_DTYPE} \
     --optimizer=${OPTIMIZER} \
     --num_train_examples=${EXAMPLES} \
     --seed=${SEED}"
@@ -193,11 +232,13 @@ SBEOF
 
 if $DRY_RUN; then
     echo "$SBATCH_SCRIPT"
+    echo ""
 else
     TMPSCRIPT=$(mktemp /tmp/tamper_XXXXXX.sbatch)
     echo "$SBATCH_SCRIPT" > "$TMPSCRIPT"
     echo "Submitting: $TAG"
-    echo "Output dir: $OUTPUT_DIR"
     sbatch "$TMPSCRIPT"
     rm "$TMPSCRIPT"
 fi
+
+done

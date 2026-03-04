@@ -11,7 +11,7 @@ Loss = retain_coef * sft_loss - update_coef * ||theta - theta_0||^2
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Literal, cast
 
 import torch
 import torch.nn.functional as F
@@ -221,6 +221,7 @@ class MaxUpdateConfig:
     lora_r: int = 16
     layers: list[int] = field(default_factory=lambda: list(range(32)))
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"
+    dtype: Literal["bf16", "fp16"] = "bf16"
     save_path: str = ""
     revision: str = "main"
     hidden_dim: int = 4096
@@ -299,7 +300,8 @@ if __name__ == "__main__":
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
         gradient_checkpointing=True,
-        bf16=True,
+        fp16=run_cfg.dtype == "fp16",
+        bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
         ddp_find_unused_parameters=False,
     )

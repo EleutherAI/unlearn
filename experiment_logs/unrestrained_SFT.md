@@ -292,6 +292,44 @@ Tamper: AdamW, evaluated every 500, batch_size=32.
 | Rank | Config | Step 0 | Step 500 | Step 1000 | Step 1500 | Step 2000 | Step 2500 | Step 3000 | Notes |
 |------|--------|--------|----------|-----------|-----------|-----------|-----------|-----------|-------|
 
+### Orthogonal Circuit Breakers pdbs=16: Retain Coef Sweep
+
+All-module, pdbs=16, rm=5, orth=5, r=64, lr=1e-3, 32 steps, 1024 examples, 1ep, 1 GPU, grad_acc=2. Baseline: 42.97 / 45.10.
+
+| retain_coef | WMDP | MMLU |
+|-------------|------|------|
+| - | 42.97 | 45.10 |
+| 1e-8 | 26.04 | 39.65 |
+| 1e-6 | 26.50 | 39.57 |
+| 1e-5 | 26.27 | 40.27 |
+| 1e-4 | 26.50 | 37.57 |
+| 1e-3 | 27.07 | 40.24 |
+| 1e-2 | 26.15 | 40.13 |
+| 0.05 | 23.62 | 39.32 |
+| 1e-1 | 26.50 | 38.36 |
+| 1 | 24.31 | 41.39 |
+
+### Orthogonal Circuit Breakers pdbs=16: Remove Coef Sweep
+
+All-module, pdbs=16, ret=5, orth=5, r=64, lr=1e-3, 32 steps, 1024 examples, 1ep, 1 GPU, grad_acc=2.
+Baseline: 42.97 / 45.10.
+
+| remove_coef | WMDP | MMLU |
+|-------------|------|------|
+| - | 42.97 | 45.10 |
+| 1e-5 | 27.88 | 43.47 |
+| 1e-4 | 27.88 | 43.15 |
+| 1e-3 | 28.80 | 43.28 |
+| 1e-2 | 29.72 | 43.33 |
+| 1e-1 | 30.07 | 43.68 |
+| 0.5 | 27.42 | 43.16 |
+| 1 | 29.03 | 43.02 |
+| 5 | 28.34 | 43.48 |
+
+### Orthogonal Circuit Breakers pdbs=16: Rank Sweep (rm=0 control)
+
+All-module, pdbs=16, ret=5, rm=0, orth=5, lr=1e-3, 32 steps, 1024 examples, 1ep. All ranks (r=1 through r=512) produce identical results: WMDP=43.43%, MMLU=45.89%. With rm=0, there is no remove loss, so the model does not change.
+
 ## Unrestrained SFT
 
 ### Unrestrained SFT Circuit Breakers - Not Tamper Resistant
@@ -316,6 +354,8 @@ Tamper: SFT, AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500.
 | | MMLU | 22.95 | 27.87 | **28.78** | 26.97 | 27.91 | 26.29 | 23.90 |
 
 ### Unrestrained SFT Lens - Seemingly Tamper Resistant
+
+Model: `models/EleutherAI/deep-ignorance-unfiltered_lens_sft_ret0`
 
 Unlearned model: Tuned lens SFT, ret0, rm5, lr=1e-3, 1024 examples, 32 steps. WMDP Robust: 23.39%, MMLU: 24.65%.
 
@@ -358,6 +398,8 @@ Tamper: AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500.
 | | MMLU | 22.95 | 34.80 | 31.49 | 27.83 | 27.88 | 26.85 | 26.78 |
 
 ### Unrestrained SFT Checkpoint Transfer - Seemingly Tamper Resistant
+
+Model: `models/EleutherAI/deep-ignorance-unfiltered_ct_sft_muon_ret0_rm2000`
 
 Unlearned model: Checkpoint transfer SFT, ret0, rm2000, lr=1e-3, 2048 examples. WMDP Robust: 26.50%, MMLU: 22.93%.
 
