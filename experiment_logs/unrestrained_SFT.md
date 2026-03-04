@@ -401,6 +401,8 @@ Tamper: AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500.
 
 Model: `models/EleutherAI/deep-ignorance-unfiltered_ct_sft_muon_ret0_rm2000`
 
+(Best restrained model: models/EleutherAI/deep-ignorance-unfiltered_seq_sft_muon_keyword_rm5_ret2_L31-0)
+
 Unlearned model: Checkpoint transfer SFT, ret0, rm2000, lr=1e-3, 2048 examples. WMDP Robust: 26.50%, MMLU: 22.93%.
 
 Tamper: AdamW, 3000 steps, 1ep, ~90k chunks, evaluated every 500

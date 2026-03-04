@@ -61,7 +61,6 @@ CMD="python -m unlearn.scripts.train_and_upload_affine \
     --source_model EleutherAI/deep-ignorance-pretraining-stage-unfiltered \
     --source_revision global_step38144 \
     --target_model EleutherAI/deep-ignorance-unfiltered \
-    --layers 5 10 15 20 25 30 \
     --num_train_examples 100000 \
     --num_eval_examples 10000 \
     --batch_size 4 \

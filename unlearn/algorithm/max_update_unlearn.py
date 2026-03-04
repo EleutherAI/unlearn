@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from peft import LoraConfig, get_peft_model
 from simple_parsing import ArgumentParser
@@ -47,6 +48,22 @@ def compute_lm_loss(logits, labels, attention_mask):
     return (loss * shift_mask).sum() / (shift_mask.sum() + 1e-8)
 
 
+def _compute_update_term(param, w0, element_norm: bool):
+    """Differentiable update loss for one parameter.
+
+    Returns (update_term, norm_sq_detached).
+    For element_norm: update_term = sqrt(N) * ||diff||, gradient = diff / rms.
+    For L2 norm:      update_term = ||diff||,           gradient = diff / ||diff||.
+    """
+    diff = param - w0
+    norm_sq = diff.pow(2).sum()
+    eps = 1e-8
+    if element_norm:
+        return diff.pow(2).mean().add(eps).sqrt() * param.numel(), norm_sq.detach()
+    else:
+        return (norm_sq + eps).sqrt(), norm_sq.detach()
+
+
 class MaxUpdateTrainer(Trainer):
     def __init__(
         self,
@@ -55,7 +72,6 @@ class MaxUpdateTrainer(Trainer):
         args,
         train_dataset,
         tokenizer,
-        **kwargs,
     ):
         super().__init__(
             model=model,
@@ -80,6 +96,41 @@ class MaxUpdateTrainer(Trainer):
             f"({self.total_trainable_params} params total)"
         )
 
+        # Pre-group initial params by transformer layer module path.
+        # Remaining params (embeddings, head, norms) go in _non_layer_init.
+        no_split = set(getattr(model.config, "_no_split_modules", None) or [])
+        self._layer_hooks_info: list[tuple[str, dict[str, torch.Tensor]]] = []
+        layer_param_fullnames: set[str] = set()
+
+        for module_name, module in model.named_modules():
+            if module.__class__.__name__ not in no_split:
+                continue
+            prefix = module_name + "."
+            layer_init: dict[str, torch.Tensor] = {}
+            for pname in dict(module.named_parameters()):
+                full = prefix + pname
+                if full in self.initial_params:
+                    layer_init[pname] = self.initial_params[full]
+                    layer_param_fullnames.add(full)
+            if layer_init:
+                self._layer_hooks_info.append((module_name, layer_init))
+
+        self._non_layer_init: dict[str, torch.Tensor] = {
+            k: v
+            for k, v in self.initial_params.items()
+            if k not in layer_param_fullnames
+        }
+
+    def create_optimizer(self):
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        self.optimizer = torch.optim.AdamW(
+            params,
+            lr=self.args.learning_rate,
+            weight_decay=self.args.weight_decay,
+            fused=False,
+        )
+        return self.optimizer
+
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
             raise ValueError("Trainer: training requires a train_dataset.")
@@ -102,6 +153,58 @@ class MaxUpdateTrainer(Trainer):
             DataLoader(self.train_dataset, **dataloader_params)
         )
 
+    def _register_update_hooks(self, model, update_terms, norm_sq_terms):
+        """Register per-layer forward hooks to compute differentiable update
+        loss terms while FSDP has gathered that layer's full parameters."""
+        fsdp_root = model.module if hasattr(model, "module") else model
+        handles = []
+
+        def _make_layer_hook(layer_init_params):
+            def hook(module, _input, output):
+                for pname, param in module.named_parameters():
+                    if pname not in layer_init_params or not param.requires_grad:
+                        continue
+                    w0 = layer_init_params[pname].to(param.device, dtype=param.dtype)
+                    term, nsq = _compute_update_term(
+                        param, w0, self.run_cfg.element_norm
+                    )
+                    update_terms.append(term)
+                    norm_sq_terms.append(nsq)
+                return output
+
+            return hook
+
+        for module_name, layer_init in self._layer_hooks_info:
+            parts = module_name.split(".")
+            module = fsdp_root
+            for p in parts:
+                if p.isdigit():
+                    module = module[int(p)]
+                else:
+                    module = getattr(module, p)
+            handles.append(module.register_forward_hook(_make_layer_hook(layer_init)))
+
+        # Non-layer params (embeddings, head, norms) are in the root FSDP unit.
+        # The root's forward hook fires while root-unit params are gathered.
+        if self._non_layer_init:
+            non_layer = self._non_layer_init
+
+            def _root_hook(module, _input, output):
+                for pname, param in module.named_parameters():
+                    if pname not in non_layer or not param.requires_grad:
+                        continue
+                    w0 = non_layer[pname].to(param.device, dtype=param.dtype)
+                    term, nsq = _compute_update_term(
+                        param, w0, self.run_cfg.element_norm
+                    )
+                    update_terms.append(term)
+                    norm_sq_terms.append(nsq)
+                return output
+
+            handles.append(fsdp_root.register_forward_hook(_root_hook))
+
+        return handles
+
     def training_step(self, model, inputs, num_items_in_batch=None):
         model.train()
         inputs = self._prepare_inputs(inputs)
@@ -114,67 +217,101 @@ class MaxUpdateTrainer(Trainer):
 
         retain_ids = inputs["input_ids"].to(target_device)
         retain_mask = inputs["attention_mask"].to(target_device)
+        grad_acc = self.args.gradient_accumulation_steps
 
-        # Forward + backward on SFT retain loss only (keeps autograd graph small)
+        # Per-layer forward hooks capture differentiable update terms while
+        # FSDP has each layer's full params gathered.
+        update_terms: list[torch.Tensor] = []
+        norm_sq_terms: list[torch.Tensor] = []
+        handles = self._register_update_hooks(model, update_terms, norm_sq_terms)
+
         retain_logits = model(
             input_ids=retain_ids,
             attention_mask=retain_mask,
         ).logits
+
+        for h in handles:
+            h.remove()
+
         sft_loss = compute_lm_loss(retain_logits, retain_ids, retain_mask)
-        scaled_sft_loss = self.run_cfg.retain_coef * sft_loss
 
-        self.accelerator.backward(scaled_sft_loss)
+        update_loss = (
+            torch.stack(update_terms).sum()
+            if update_terms
+            else torch.tensor(0.0, device=target_device)
+        )
+        update_norm_sq = (
+            torch.stack(norm_sq_terms).sum()
+            if norm_sq_terms
+            else torch.tensor(0.0, device=target_device)
+        )
 
-        # Add update gradient analytically.
-        # Maximize ||theta - theta_0|| (L2 norm, not squared) so gradient magnitude
-        # is constant: grad = -update_coef * (theta - theta_0) / ||theta - theta_0||
-        update_norm = torch.tensor(0.0, device=target_device)
-        grad_acc = self.args.gradient_accumulation_steps
-        with torch.no_grad():
+        if dist.is_initialized():
+            dist.all_reduce(update_norm_sq, op=dist.ReduceOp.SUM)
+
+        if self.run_cfg.same_sign_grads:
+            # Two-pass backward: update first, then SFT, filter by sign.
+            self.accelerator.backward(
+                -(self.run_cfg.update_coef / grad_acc) * update_loss,
+                retain_graph=True,
+            )
+            update_grads: dict[str, torch.Tensor] = {}
             for name, param in model.named_parameters():
-                key = name.removeprefix("module.")
-                if param.requires_grad and key in self.initial_params:
-                    init_p = self.initial_params[key].to(param.device)
-                    diff = param.data - init_p
-                    param_norm = diff.norm()
-                    update_norm = update_norm + param_norm.pow(2)
+                if param.grad is not None:
+                    g = param.grad
+                    if hasattr(g, "to_local"):
+                        g = g.to_local()
+                    update_grads[name] = g.clone()
+            model.zero_grad()
 
+            self.accelerator.backward(self.run_cfg.retain_coef * sft_loss)
+
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    if name in update_grads and param.grad is not None:
+                        ug = update_grads[name]
+                        g = param.grad
+                        if hasattr(g, "to_local"):
+                            g = g.to_local()
+                        same_sign = ug.sign() == g.sign()
+                        param.grad.add_(ug * same_sign)
+        elif self.run_cfg.sgd_update:
+            # SGD update applied via differentiable loss, then manual LR scaling.
+            # backward on SFT only; apply update step directly to params.
+            self.accelerator.backward(self.run_cfg.retain_coef * sft_loss)
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    key = name.removeprefix("module.")
+                    if not (param.requires_grad and key in self.initial_params):
+                        continue
+                    init_p = self.initial_params[key].to(
+                        param.device, dtype=param.dtype
+                    )
+                    diff = param.data - init_p
                     if self.run_cfg.element_norm:
-                        # Normalize to unit per-element RMS so all tensors
-                        # get equal per-element gradient regardless of shape.
                         rms = diff.pow(2).mean().sqrt()
                         unit_dir = diff / rms if rms > 1e-8 else diff
                     else:
-                        # Per-tensor L2 normalization (unit L2 norm).
-                        # Small tensors get ~sqrt(N) larger per-element
-                        # gradient than large tensors.
-                        unit_dir = diff / param_norm if param_norm > 1e-8 else diff
-
-                    if self.run_cfg.sgd_update:
-                        # Direct SGD step on param.data. Step size is
-                        # proportional to update_coef, unlike AdamW which
-                        # normalizes away the coefficient.
-                        step = (
-                            self.args.learning_rate
-                            * self.run_cfg.update_coef
-                            * unit_dir
-                            / grad_acc
-                        )
-                        param.data.add_(step)
-                    else:
-                        update_grad = -self.run_cfg.update_coef * unit_dir / grad_acc
-                        if param.grad is not None:
-                            if self.run_cfg.same_sign_grads:
-                                same_sign = update_grad.sign() == param.grad.sign()
-                                param.grad.add_(update_grad * same_sign)
-                            else:
-                                param.grad.add_(update_grad)
-                        else:
-                            param.grad = update_grad
+                        pn = diff.norm()
+                        unit_dir = diff / pn if pn > 1e-8 else diff
+                    step = (
+                        self.args.learning_rate
+                        * self.run_cfg.update_coef
+                        * unit_dir
+                        / grad_acc
+                    )
+                    param.data.add_(step)
+        else:
+            # Default: single backward on combined differentiable loss.
+            total_loss = (
+                self.run_cfg.retain_coef * sft_loss
+                - (self.run_cfg.update_coef / grad_acc) * update_loss
+            )
+            self.accelerator.backward(total_loss)
 
         loss = (
             self.run_cfg.retain_coef * sft_loss
-            - self.run_cfg.update_coef * update_norm.sqrt()
+            - self.run_cfg.update_coef * update_norm_sq.sqrt()
         )
 
         if (
@@ -193,7 +330,7 @@ class MaxUpdateTrainer(Trainer):
             tqdm.write(
                 f"step: {self.current_training_step} || "
                 f"sft_loss: {sft_loss.item():.4f} || "
-                f"update_norm: {update_norm.item():.6f} || "
+                f"update_norm: {update_norm_sq.item():.6f} || "
                 f"combined_loss: {loss.item():.4f}"
                 f"{tag}"
             )
@@ -247,9 +384,6 @@ if __name__ == "__main__":
 
     train_dataset = get_unlearning_dataset(run_cfg, tokenizer, NUM_PROC)
 
-    if run_cfg.dtype == "fp16":
-        model = model.half()
-
     if not run_cfg.lora:
         for param in model.parameters():
             param.requires_grad = True
@@ -302,11 +436,17 @@ if __name__ == "__main__":
         per_device_eval_batch_size=run_cfg.pdbs,
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
         fp16=run_cfg.dtype == "fp16",
         bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
-        ddp_find_unused_parameters=False,
+        optim="adamw_torch",
+        fsdp="full_shard auto_wrap",
+        fsdp_config={
+            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+            "activation_checkpointing": True,
+            "state_dict_type": "FULL_STATE_DICT",
+        },
     )
 
     trainer = MaxUpdateTrainer(

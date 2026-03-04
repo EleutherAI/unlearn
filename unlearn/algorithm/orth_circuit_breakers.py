@@ -163,7 +163,10 @@ class RRTrainer(UnlearningTrainer):
                 ),
             ]
         )
-        retain_coeff = self.retain_coef * scheduled_coeff
+        if self.run_args.retain_warmup:
+            retain_coeff = self.retain_coef * (0.1 + 0.9 * scheduled_coeff)
+        else:
+            retain_coeff = self.retain_coef * scheduled_coeff
         circuit_breaker_coeff = self.remove_coef * (1 - 0.25 * scheduled_coeff)
         orth_coeff = self.orth_coef * scheduled_coeff
 
@@ -353,6 +356,7 @@ class OrthCircuitBreakerConfig:
     max_steps: int = -1
     num_train_epochs: int = 1
     dtype: Literal["bf16", "fp16"] = "bf16"
+    retain_warmup: bool = False
 
 
 if __name__ == "__main__":

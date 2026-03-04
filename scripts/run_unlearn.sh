@@ -20,6 +20,7 @@
 #   --sft             Use full-rank SFT instead of LoRA
 #   --orth            orth_coef for circuit breakers (default: 5)
 #   --muon            Use Muon optimizer instead of AdamW
+#   --nodes           Number of SLURM nodes (default: 1)
 #   --time            SLURM time limit (default: 6:00:00)
 #   --dtype           Mixed precision: bf16 or fp16 (default: bf16)
 #   --extra           Extra args passed verbatim to the training script
@@ -39,6 +40,7 @@ SFT=false
 ORTH=5
 MUON=false
 TIME="6:00:00"
+NODES=1
 DTYPE="bf16"
 EXTRA=""
 DRY_RUN=false
@@ -58,6 +60,7 @@ while [[ $# -gt 0 ]]; do
         --orth)         ORTH="$2"; shift 2 ;;
         --muon)         MUON=true; shift ;;
         --time)         TIME="$2"; shift 2 ;;
+        --nodes)        NODES="$2"; shift 2 ;;
         --dtype)        DTYPE="$2"; shift 2 ;;
         --extra)        EXTRA="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=true; shift ;;
@@ -95,6 +98,7 @@ case "$ALG" in
             TRAIN_CMD="python -m unlearn.algorithm.orth_circuit_breakers \
     --remove_coef=$RM --retain_coef=$RET --orth_coef=$ORTH \
     --lora=False --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --retain_warmup=True \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
@@ -104,6 +108,7 @@ case "$ALG" in
             TRAIN_CMD="python -m unlearn.algorithm.orth_circuit_breakers \
     --remove_coef=$RM --retain_coef=$RET --orth_coef=$ORTH \
     --lora_r=$RANK --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --retain_warmup=True \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
@@ -178,23 +183,23 @@ case "$ALG" in
         [[ -z "$EXAMPLES" ]] && EXAMPLES=1024
         [[ -z "$PDBS" ]] && PDBS=1
         if $SFT; then
-            TAG="seq_sft_ret${RET}_rm${RM}_lr${LR}"
+            TAG="seq_sft_ret${RET}_rm${RM}_lr${LR}_nn${NODES}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
             TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.sequential_unlearn_sft \
     --remove_coef=$RM --retain_coef=$RET \
     --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
-    --start_layer=31 --end_layer=8 --layer_step=4 --optimizer=adamw \
+    --start_layer=31 --end_layer=0 --layer_step=1 --optimizer=adamw \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
             TRAIN_GPUS="0,1,2,3"
         else
-            TAG="seq_lora_ret${RET}_rm${RM}_r${RANK}_lr${LR}"
+            TAG="seq_lora_ret${RET}_rm${RM}_r${RANK}_lr${LR}_nn${NODES}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
             TRAIN_CMD="python -m unlearn.algorithm.sequential_unlearn \
     --remove_coef=$RM --retain_coef=$RET \
     --lora_r=$RANK --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
-    --start_layer=31 --end_layer=8 --layer_step=4 \
+    --start_layer=31 --end_layer=0 --layer_step=1 \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
@@ -267,6 +272,29 @@ fi
 CUR_TRAIN_CMD=$(echo "$TRAIN_CMD" | sed "s|--lr=${LR}|--lr=${SWEEP_LR}|")
 CUR_TRAIN_CMD=$(echo "$CUR_TRAIN_CMD" | sed "s|--save_path=[^ ]*|--save_path=$CUR_MODEL_PATH|")
 
+# ── multi-node handling ──
+if [[ "$NODES" -gt 1 ]]; then
+    if [[ "$CUR_TRAIN_CMD" != torchrun* ]]; then
+        echo "Error: --nodes > 1 only supported for torchrun-based algorithms"
+        exit 1
+    fi
+    TRAIN_SUFFIX="${CUR_TRAIN_CMD#torchrun --nproc_per_node=4 }"
+    TRAIN_BLOCK='MASTER_ADDR=$(scontrol show hostname $SLURM_NODELIST | head -n1)
+MASTER_PORT=29500
+echo "MASTER_ADDR: $MASTER_ADDR"
+echo "MASTER_PORT: $MASTER_PORT"
+
+srun --ntasks-per-node=1 torchrun \
+    --nnodes=$SLURM_NNODES \
+    --nproc_per_node=4 \
+    --rdzv_id=$SLURM_JOB_ID \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+    '"$TRAIN_SUFFIX"
+else
+    TRAIN_BLOCK="$CUR_TRAIN_CMD"
+fi
+
 JOB_NAME="unlearn-${CUR_TAG}"
 OUT_FILE="$REPO_ROOT/runs/${CUR_TAG}-%j.out"
 
@@ -274,7 +302,7 @@ OUT_FILE="$REPO_ROOT/runs/${CUR_TAG}-%j.out"
 SBATCH_SCRIPT=$(cat <<SBEOF
 #!/bin/bash
 #SBATCH --job-name=$JOB_NAME
-#SBATCH --nodes=1
+#SBATCH --nodes=$NODES
 #SBATCH --exclusive
 #SBATCH --gpus-per-node=4
 #SBATCH --ntasks-per-node=1
@@ -314,7 +342,7 @@ fi
 cd $REPO_ROOT
 
 echo "===== Training ====="
-$CUR_TRAIN_CMD
+$TRAIN_BLOCK
 
 if [ ! -d "$CUR_EVAL_MODEL" ]; then
     echo "ERROR: Model not found at $CUR_EVAL_MODEL"

@@ -1,6 +1,7 @@
 import csv
 import gc
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
@@ -238,7 +239,13 @@ class RRTrainer(UnlearningTrainer):
                     )
                     retain_capturer.register()
 
-                with unwrapped_model.disable_adapter():
+                adapter_context = (
+                    unwrapped_model.disable_adapter()
+                    if hasattr(unwrapped_model, "disable_adapter")
+                    else nullcontext()
+                )
+
+                with adapter_context:
                     unwrapped_model.eval()
                     with torch.no_grad():
                         orig_retain_outputs = unwrapped_model(**retain_inputs_dict)
@@ -563,23 +570,12 @@ if __name__ == "__main__":
     lora_layers_to_transform = [i for i in range(max(run_cfg.layers) + 1)]
 
     if run_cfg.lora:
-        if "OLMo" in run_cfg.model_name:
-            target_modules = [
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ]
-        else:
-            target_modules = [
-                "query_key_value",
-                "dense",
-                "dense_h_to_4h",
-                "dense_4h_to_h",
-            ]
+        target_modules = [
+            "query_key_value",
+            "dense",
+            "dense_h_to_4h",
+            "dense_4h_to_h",
+        ]
 
         lora_config = LoraConfig(
             r=run_cfg.lora_r,
@@ -719,8 +715,6 @@ if __name__ == "__main__":
         checkpoint_model=checkpoint_model,
         affine_transforms=affine_transforms,
     )
-    if run_cfg.optimizer == "muon":
-        print(f"Using Muon optimizer (lr={run_cfg.lr})")
     trainer = TrainerClass(**trainer_kwargs)
 
     model.train()

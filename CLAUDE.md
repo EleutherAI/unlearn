@@ -230,6 +230,43 @@ Accepts local model directories or HF model IDs (resolved from cache). Saves per
 
 For stable rank of weight **deltas** between two models, use `compute_erank` instead.
 
+## Train and Upload Affine Transforms
+
+Train affine transforms (ridge regression) mapping hidden-state activations from a pretraining checkpoint to the final model, then optionally upload to HuggingFace Hub. Used by checkpoint transfer unlearning to align activations across checkpoints.
+
+```bash
+python -m unlearn.scripts.train_and_upload_affine \
+    --source_model EleutherAI/deep-ignorance-pretraining-stage-unfiltered \
+    --source_revision global_step38144 \
+    --target_model EleutherAI/deep-ignorance-unfiltered \
+    --num_train_examples 100000 \
+    --num_eval_examples 10000 \
+    --batch_size 4 \
+    --save_local ./models/affine_transforms \
+    --upload_to_hub EleutherAI/affine-checkpoint-transfer
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--source_model` | Pretraining checkpoint to map FROM | `EleutherAI/deep-ignorance-pretraining-stage-unfiltered` |
+| `--source_revision` | Revision/step of source model | `global_step38144` |
+| `--target_model` | Final model to map TO | `EleutherAI/deep-ignorance-unfiltered` |
+| `--target_revision` | Revision of target model | `main` |
+| `--layers` | Layer indices for transforms | `0..31` (all 32) |
+| `--num_train_examples` | Training examples for ridge regression | `100000` |
+| `--num_eval_examples` | Held-out examples for MSE evaluation | `10000` |
+| `--batch_size` | Batch size for forward passes | `4` |
+| `--alpha` | Ridge regression regularization | `0.01` |
+| `--use_bio_retain` | Include bio-retain corpus in training data | `false` |
+| `--upload_to_hub` | HuggingFace repo ID to upload to | -- |
+| `--save_local` | Local directory to save transforms | -- |
+| `--private` | Make HuggingFace repo private | `false` |
+
+Submit via sbatch for GPU access:
+```bash
+sbatch unlearn/scripts/train_affine.sbatch [upload_repo]
+```
+
 ## Launch Tamper Jobs
 
 Use `scripts/run_tamper.sh` to submit tamper (finetune) attack jobs. With no overrides it submits 5 parallel sbatch jobs:
