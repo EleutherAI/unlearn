@@ -10,7 +10,7 @@ Unlearning algorithms often define a learning objective based on the token proba
 
 A tuned lens is a learned affine map that maps from a module's output activations to the model unembedding layer. The map is learned by unembedding the transformed module outputs using the base model's unembedding matrix, and then updating the map to minimize a standard cross entropy loss term.
 
-We train a tuned lens on each module and then unlearn each individual module through its tuned lens.
+We train a tuned lens on each module and then unlearn each module through its tuned lens.
 
 ## Orthogonal Circuit Breakers Unlearn
 
