@@ -6,7 +6,7 @@ Detailed instructions for using this repository may be found in the CLAUDE.md. P
 
 ## Tuned Lens Unlearn
 
-Unlearning algorithms often define a learning objective based on the token probabilities at the model output, such as entropy maximization or cross-entropy loss maximization. In general these objectives may be obtained by fine-tuning just the final few layers of the model, without removing the relevant information from the earlier layers. Tuned lens unlearning promotes deep information removal by applying a loss term at every module output.
+Unlearning algorithms often define a learning objective based on the token probabilities at the model output, such as entropy maximization or cross-entropy loss maximization. Loss on these objectives may be minimized via fine-tuning on only a few final model layers. Therefore, we have no strong reason to expect that minimizing these objectives will remove relevant information from all model layers. Tuned lens unlearning targets this failure mode by computing a loss term at every module output.
 
 A tuned lens is a learned affine map that maps from a module's output activations to the model unembedding layer. The map is learned by unembedding the transformed module outputs using the base model's unembedding matrix, and then updating the map to minimize a standard cross entropy loss term.
 
