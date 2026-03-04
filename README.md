@@ -77,17 +77,11 @@ Install the Claude Code extension
 
 use /ide to connect to the IDE if disconnected.
 
-### Evaluation
-
-```bash
-python -m unlearn.evaluation.eval_wmdp_robust --model_path ./out/DeepIgnorance_CB --batch_size 8 --include_path unlearn/lm_eval_tasks
-python -m unlearn.evaluation.eval_mmlu --model_path ./out/DeepIgnorance_CB --batch_size 8
-```
-
 ### Circuit Breakers
 
 ```bash
-bash /home/luciarosequirke/lucia/unlearning/unlearn/scripts/base_unlearn_cb.sh
+bash scripts/run_unlearn.sh -a cb --orth 0 --rm <remove_coef> --ret <retain_coef> [options]
+
 ```
 
 ### Tuned Lens
@@ -107,13 +101,7 @@ torchrun --nproc_per_node=8 unlearn/algorithm/tuned_lens/train.py --batch_size 4
 3. Run tuned lens unlearning
 
 ```bash
-python -m unlearn.algorithm.lens_unlearn --lens_path runs/tuned_lens/final
-```
-
-## Tamper
-
-```bash
-python -m unlearn.reference.cas.finetune_attack --epochs=1 --eval_every=5 --num_train_examples=64 --model_name <input_path> --save_name <output_path>
+bash scripts/run_unlearn.sh -a lens --rm <remove_coef> --ret <retain_coef> [options]
 ```
 
 ## Tamper and Plot
@@ -155,41 +143,6 @@ Copy the plot to experiment_logs:
 ```bash
 cp runs/<tamper_output_dir>/tamper_results_<timestamp>.png experiment_logs/tampering_<name>.png
 ```
-
-## Evaluate Manually
-
-```
-sbatch script.sbatch /path/to/model
-```
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=mmlu-eval
-#SBATCH --nodes=1
-#SBATCH --exclusive
-#SBATCH --gpus-per-node=4
-#SBATCH --time=1:00:00
-#SBATCH --output=/home/a6a/lucia.a6a/unlearn/runs/mmlu-eval-%j.out
-
-source /home/a6a/lucia.a6a/miniforge3/etc/profile.d/conda.sh
-conda activate <env_name>
-module load cuda/12.6
-
-...
-
-torchrun --nproc_per_node=4 -m lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH \
-    --tasks wmdp_bio_robust \
-    --include_path "$REPO_ROOT/unlearn/lm_eval_tasks" \
-    --batch_size auto
-
-torchrun --nproc_per_node=4 -m lm_eval --model hf \
-    --model_args pretrained=$MODEL_PATH \
-    --tasks mmlu \
-    --batch_size auto
-```
-
-
 
 ## Transformer Probe
 
