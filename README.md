@@ -20,7 +20,7 @@ We introduce a within-batch forget sequence orthogonalization loss to incentiviz
 
 ## Sequential Unlearn
 
-We improve on the tuned lens unlearning by replacing the tuned lens with the final layers of the base (pre-unlearn) model. We unlearn each layer in sequence, mapping the activations at the layer currently being unlearned to the forget loss through the base model, and to the retain loss through the updated model weights.
+We improve tuned lens unlearning by replacing the tuned lens with the final layers of the base (pre-unlearn) model. We unlearn each layer in sequence, mapping the activations at the layer currently being unlearned to the forget loss through the base model, and to the retain loss through the updated model weights.
 
 ## Checkpoint Activation Transfer Unlearn
 
