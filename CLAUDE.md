@@ -196,6 +196,10 @@ scontrol show job job_id
 
 Users may also use cmd-shift-P <job_id> to open the log.
 
+## Static Analysis
+
+Analyze models using the pipeline in https://github.com/jammastergirish/CambridgeERA. Clone the project as a sibling directory (editable install).
+
 ## Compute Stable Rank
 
 Compute stable rank (Frobenius norm squared / spectral norm squared) of a checkpoint's linear weight matrices:
