@@ -49,8 +49,8 @@ We implement several token selection methods for per-token unlearning:
 
 - Blocklist-based
 - Activation similarity to blocklist tokens
-- Linear probe
-- Biorisk relevant SAE activations
+- Probe
+- Biorisk-relevant SAE activations
 - Data attribution (MAGIC: https://arxiv.org/abs/2504.16430)
 
 # Analysis
