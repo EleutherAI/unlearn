@@ -248,7 +248,7 @@ if __name__ == "__main__":
     train_dataset = get_unlearning_dataset(run_cfg, tokenizer, NUM_PROC)
 
     if run_cfg.dtype == "fp16":
-        model = model.float()
+        model = model.half()
 
     if not run_cfg.lora:
         for param in model.parameters():
