@@ -48,7 +48,7 @@ Our algorithms use several design elements that may be stacked:
 We implement several token selection methods for per-token unlearning:
 
 - Blocklist-based
-- Activations similarity to blocklist
+- Activation similarity to blocklist tokens
 - Linear probe
 - Biorisk relevant SAE activations
 - Data attribution (MAGIC: https://arxiv.org/abs/2504.16430)
