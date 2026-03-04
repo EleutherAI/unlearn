@@ -26,7 +26,7 @@ We improve tuned lens unlearning by replacing the tuned lens with the final laye
 
 A module that undergoes sufficient training to induce random performance on a forget distribution may still retain unused knowledge in its weights that is not extracted by the later modules. 
 
-We apply a teacher model that is deeply ignorant and trivially available - an early checkpoint of the same model. We select the latest checkpoint at which the model has near-random performance on the forget distribution, and then train an affine map from its activations to the fully-trained model using an MSE loss. This map accounts for linear transformations of the model weights that occur over the course of training (we also experiment with an SVCCA-based map; see https://arxiv.org/abs/1811.00225).
+We apply a teacher model that is deeply ignorant and trivially available - an early checkpoint of the same model. We select the latest checkpoint at which the model has near-random performance on the forget distribution, and then train an affine map from its activations to the fully-trained model using an MSE loss. This map accounts for linear transformations of the model weights that occur over the course of training (we also experiment with an SVCCA-based map; for more information on this and linear representation drift over training see https://arxiv.org/abs/1811.00225).
 
 We use a MSE loss term between the transformed early checkpoint activations which are deeply ignorant of the forget distribution, and the base model activations.
 
