@@ -14,7 +14,7 @@ We train a tuned lens on each module and then unlearn each module through its tu
 
 ## Orthogonal Circuit Breakers Unlearn
 
-The circuit breakers forget loss produces forget-sequence activations that are orthogonal to retain-sequence activations. Mechanistically, we can imagine a network learning a single linear transform at the first layer that can distinguish between forget and retain sequences that selects and transforms all forget activations in the same way. This would minimize the circuit breakers loss, but could be undone by learning a single transform.
+The circuit breakers forget loss produces forget-sequence activations that are orthogonal to retain-sequence activations. Mechanistically, we can imagine a network learning a single linear transform at the first layer with the capacity to distinguish between forget and retain sequences, selecting and transforming all forget activations in the same way. This solution minimizes the circuit breakers loss, but may be undone by learning the transform's inverse.
 
 We introduce a within-batch forget sequence orthogonalization loss to incentivize each forget sequence to be scrambled using a unique learned transformation.
 
