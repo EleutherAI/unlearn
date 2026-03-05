@@ -28,6 +28,8 @@ Don't vary the number of training steps on your own initiative.
 
 When you hyperparameter tune an unlearning algorithm your first task is to find the boundary zone between where accuracy drops on both MMLU and WMDP Bio Robust, and where it drops on neither. You second task is to find a good point within that boundary zone - either where both evaluation accuracies drop partway, or where WMDP Bio Robust reduces to random while MMLU is preserved.
 
+Once you find a set of hyperparameters that produces a point within the boundary zone, you may be able to improve performance by reducing the learning rate and increasing the remove coefficient.
+
 Unlearning hyperparameters don't transfer between number of training steps. Only comment on this if you find an exception to the rule.
 
 Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the markdown. Only record the eval results.
