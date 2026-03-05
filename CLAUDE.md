@@ -30,6 +30,17 @@ When you hyperparameter tune an unlearning algorithm your first task is to find 
 
 Once you find a set of hyperparameters that produces a point within the boundary zone, you may be able to improve performance by reducing the learning rate and increasing the remove coefficient.
 
+There are essentially four evaluation states an unlearned model can be in:
+
+- Both MMLU and WMDP scores drop to random (~25%)
+   - in this state you need to reduce your learning rate and/or increase your retain coefficient and/or reduce your remove coefficient
+- Both MMLU and WMDP scores stay high (~43%-45%)
+  - in this state you need to increase your learning rate and/or reduce your retain coefficient and/or increase your remove coefficient
+- Both drop to between high performance and random (both around 30% to 40%)
+   - in this state you need to reduce your learning rate and/or increase your retain coefficient
+- WMDP drops more than MMLU (27% vs. 43% - this is a decent result)
+   - success! 
+
 Unlearning hyperparameters don't transfer between number of training steps. Only comment on this if you find an exception to the rule.
 
 Don't write "Key Findings", "Conclusions", or otherwise add your analysis to the markdown. Only record the eval results.
