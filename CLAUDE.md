@@ -37,7 +37,7 @@ There are essentially four evaluation states an unlearned model can be in:
 - Both MMLU and WMDP scores stay high (~43%-45%)
   - in this state you need to increase your learning rate and/or reduce your retain coefficient and/or increase your remove coefficient
 - Both drop to between high performance and random (both around 30% to 40%)
-   - in this state you need to either (reduce your learning rate a small amount and increase your remove coefficient) or increase your retain coefficient
+   - in this state you can try 1. (reduce your learning rate a small amount and increase your remove coefficient) and 2. increase your retain coefficient
 - WMDP drops more than MMLU (27% vs. 43% - this is a decent result)
    - success! 
 
