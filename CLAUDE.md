@@ -51,7 +51,7 @@ Default to SFT (full parameter training) unless LoRA is specifically requested.
 
 Tuned lens unlearning requires FSDP when running on GPUs with 95GB of VRAM or less using torchrun, because it holds a reference model and several tuned lenses in memory alongside the training model.
 
-Checkpoint transfer unlearning does not support FSDP because its custom trainer calls `unwrapped_model(**inputs)` which bypasses FSDP parameter gathering. It uses DDP with gradient accumulation steps via torchrun. It holds a frozen checkpoint model copy on each GPU for source activations. SFT requires pdbs=2 on 95GB GPUs (pdbs=4 OOMs).
+Checkpoint transfer unlearning supports FSDP and DDP via torchrun, and gradient accumulation steps. It holds a frozen checkpoint model copy on each GPU for source activations. SFT requires pdbs=2 on 95GB GPUs (pdbs=4 OOMs).
 
 Sequential SFT uses FSDP (`full_shard auto_wrap`) via torchrun with a frozen ref model per GPU for retain KL loss.
 
