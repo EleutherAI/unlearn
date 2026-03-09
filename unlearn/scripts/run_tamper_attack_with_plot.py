@@ -9,8 +9,9 @@ Execution modes:
 
   DDP (data parallelism, 4 GPUs):
     torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with_plot ...
-    grad_accumulation is automatically divided by world_size to keep effective batch constant.
-    Eval is submitted as async sbatch jobs; results are collected after training.
+    grad_accumulation is automatically divided by world_size to keep effective batch
+    constant. Eval is submitted as async sbatch jobs; results are collected after
+    training.
 """
 
 import argparse
@@ -161,7 +162,7 @@ class TamperAttackConfig:
     output_dir: str = "runs/tamper_attack"
     num_train_examples: int = 0  # 0 = use full dataset
     epochs: int = 1
-    eval_every: int = 10
+    eval_every: int = 500
     lr: float = 2e-5
     batch_size: int = 1
     grad_accumulation: int = 16
@@ -636,7 +637,8 @@ def _bio_forget_chunk_generator(config, tokenizer):
 
 
 def prepare_bio_forget_corpus_examples(config: TamperAttackConfig, tokenizer):
-    """Prepare examples from cais/wmdp-bio-forget-corpus (gated dataset) via generator."""
+    """Prepare examples from cais/wmdp-bio-forget-corpus
+    (gated dataset) via generator."""
     dataset = hf_dataset.from_generator(
         _bio_forget_chunk_generator,
         gen_kwargs={"config": config, "tokenizer": tokenizer},
@@ -969,7 +971,8 @@ def run_tamper_attack(config: TamperAttackConfig):
         print(
             f"DDP: world_size={world_size}, "
             f"grad_acc {config.grad_accumulation} -> {adjusted_grad_acc}, "
-            f"effective batch = {config.batch_size} * {adjusted_grad_acc} * {world_size} "
+            f"effective batch = {config.batch_size} "
+            f"* {adjusted_grad_acc} * {world_size} "
             f"= {config.batch_size * adjusted_grad_acc * world_size}"
         )
 
@@ -1133,7 +1136,12 @@ def parse_args():
         "--num_train_examples",
         type=int,
         default=0,
-        help="Number of training chunks (2048-token). 0 = use full dataset. Source docs are fully chunked first, then this many chunks are selected.",
+        help=(
+            "Number of training chunks (2048-token). "
+            "0 = use full dataset. Source docs are "
+            "fully chunked first, then this many chunks "
+            "are selected."
+        ),
     )
     parser.add_argument(
         "--batch_size",

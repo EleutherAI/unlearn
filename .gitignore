@@ -6,6 +6,8 @@ out/
 # C extensions
 *.so
 
+archive/
+
 # Distribution / packaging
 .Python
 build/
