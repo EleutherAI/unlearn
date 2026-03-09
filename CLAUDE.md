@@ -39,7 +39,7 @@ There are essentially four evaluation states an unlearned model can be in:
 - Both drop to between high performance and random (both around 30% to 40%)
    - in this state you can try 1. (reduce your learning rate a small amount and increase your remove coefficient) and 2. increase your retain coefficient
 - WMDP drops more than MMLU (27% vs. 43% - this is a decent result)
-   - success! 
+   - success!
 
 Unlearning hyperparameters don't transfer between number of training steps. Only comment on this if you find an exception to the rule.
 
@@ -75,7 +75,7 @@ When training a LoRA the most common successful value is lr=1e-3 or below. When 
 
 # Project Structure and Conventions
 
-Never save logs, scripts, and other development files into the root of a project. Use an appropriate directory such as `runs/` (for files with only transient value) or `unlearn/scripts/` for files to be committed.
+Never save logs, scripts, and other development files into the root of a project. Use an appropriate directory such as `runs/` (for files with only transient value) or `scripts/` for files to be committed.
 
 When you write a script that launches a CLI command via a subprocess, print the CLI command so it can be easily reproduced.
 
@@ -218,10 +218,10 @@ Analyze models using the pipeline in https://github.com/jammastergirish/Cambridg
 Compute stable rank (Frobenius norm squared / spectral norm squared) of a checkpoint's linear weight matrices:
 
 ```bash
-python -m unlearn.scripts.compute_stable_rank \
+python -m scripts.compute_stable_rank \
     --model_path models/EleutherAI/<model_name>
 
-python -m unlearn.scripts.compute_stable_rank \
+python -m scripts.compute_stable_rank \
     --model_path EleutherAI/deep-ignorance-unfiltered \
     --output_csv results/base_stable_rank.csv
 ```
@@ -235,7 +235,7 @@ For stable rank of weight **deltas** between two models, use `compute_erank` ins
 Train affine transforms (ridge regression) mapping hidden-state activations from a pretraining checkpoint to the final model, then optionally upload to HuggingFace Hub. Used by checkpoint transfer unlearning to align activations across checkpoints.
 
 ```bash
-python -m unlearn.scripts.train_and_upload_affine \
+python -m scripts.train_and_upload_affine \
     --source_model EleutherAI/deep-ignorance-pretraining-stage-unfiltered \
     --source_revision global_step38144 \
     --target_model EleutherAI/deep-ignorance-unfiltered \
@@ -264,7 +264,7 @@ python -m unlearn.scripts.train_and_upload_affine \
 
 Submit via sbatch for GPU access:
 ```bash
-sbatch unlearn/scripts/train_affine.sbatch [upload_repo]
+sbatch scripts/train_affine.sbatch [upload_repo]
 ```
 
 ## Evaluate Raw Activation MSE
@@ -272,7 +272,7 @@ sbatch unlearn/scripts/train_affine.sbatch [upload_repo]
 Measure per-layer MSE between two model checkpoints with no affine transform applied. Provides a baseline for how far apart hidden-state activations are in the raw representation space.
 
 ```bash
-python -m unlearn.scripts.eval_raw_mse \
+python -m scripts.eval_raw_mse \
     --source_model EleutherAI/deep-ignorance-pretraining-stage-unfiltered \
     --source_revision global_step38144 \
     --target_model EleutherAI/deep-ignorance-unfiltered \

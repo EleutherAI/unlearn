@@ -114,8 +114,16 @@ def main():
         max_step = max(max_step, max(steps))
         color = cmap(i / (len(RETAIN_COEFS) - 1))
         lw = 2.0 if ret["tag"] in ("ret1e-5", "ret1e-4", "ret0.02", "ret1") else 1.2
-        ax.plot(steps, accs, color=color, linewidth=lw, alpha=0.85,
-                marker="o", markersize=3, label=f"{label} ({cfg})")
+        ax.plot(
+            steps,
+            accs,
+            color=color,
+            linewidth=lw,
+            alpha=0.85,
+            marker="o",
+            markersize=3,
+            label=f"{label} ({cfg})",
+        )
 
     # Filtered model tamper results
     filtered_dirs = sorted(glob.glob(str(runs_dir / "tamper_filtered_*")))
@@ -137,19 +145,39 @@ def main():
         steps = [d["step"] for d in best_filtered]
         accs = [d["wmdp_bio_acc"] * 100 for d in best_filtered]
         max_step = max(max_step, max(steps))
-        ax.plot(steps, accs, color="#e41a1c", linewidth=2.5, linestyle="--",
-                label="Filtered model", zorder=10)
-        print(f"{'filtered':>12s}: best={best_filtered_name:<35s} peak={best_filt_peak*100:.1f}%")
+        ax.plot(
+            steps,
+            accs,
+            color="#e41a1c",
+            linewidth=2.5,
+            linestyle="--",
+            label="Filtered model",
+            zorder=10,
+        )
+        print(
+            f"{'filtered':>12s}: best={best_filtered_name:<35s} "
+            f"peak={best_filt_peak*100:.1f}%"
+        )
 
-    ax.axhline(y=42.97, color="black", linestyle="--", linewidth=1, alpha=0.6,
-               label="Baseline (42.97%)")
-    ax.axhline(y=25, color="gray", linestyle=":", linewidth=1, alpha=0.5,
-               label="Random (25%)")
+    ax.axhline(
+        y=42.97,
+        color="black",
+        linestyle="--",
+        linewidth=1,
+        alpha=0.6,
+        label="Baseline (42.97%)",
+    )
+    ax.axhline(
+        y=25, color="gray", linestyle=":", linewidth=1, alpha=0.5, label="Random (25%)"
+    )
 
     ax.set_xlabel("Finetuning Steps", fontsize=12)
     ax.set_ylabel("WMDP Bio Accuracy (%)", fontsize=12)
-    ax.set_title("Tamper Attack Recovery by Retain Coefficient (r=32, 1 epoch)\n"
-                 "(best sweep config per ret coef)", fontsize=13)
+    ax.set_title(
+        "Tamper Attack Recovery by Retain Coefficient (r=32, 1 epoch)\n"
+        "(best sweep config per ret coef)",
+        fontsize=13,
+    )
     ax.set_xlim(0, max(3600, max_step + 100))
     ax.set_ylim(20, 50)
     ax.grid(True, alpha=0.3)
@@ -161,8 +189,10 @@ def main():
     print(f"\nSaved: {out_path}")
 
     # Summary table
-    print(f"\n{'Ret Coef':>12s}  {'Config':<8s}  {'Start':>7}  {'Peak':>7}  "
-          f"{'End':>7}  {'Recovery':>9}")
+    print(
+        f"\n{'Ret Coef':>12s}  {'Config':<8s}  {'Start':>7}  {'Peak':>7}  "
+        f"{'End':>7}  {'Recovery':>9}"
+    )
     print("-" * 70)
     for ret in RETAIN_COEFS:
         if ret["tag"] not in results:
@@ -171,8 +201,10 @@ def main():
         start = data[0]["wmdp_bio_acc"] * 100
         peak_pct = peak * 100
         end = data[-1]["wmdp_bio_acc"] * 100
-        print(f"{label:>12s}  {cfg:<8s}  {start:>6.1f}%  {peak_pct:>6.1f}%  "
-              f"{end:>6.1f}%  {peak_pct-start:>+7.1f}pp")
+        print(
+            f"{label:>12s}  {cfg:<8s}  {start:>6.1f}%  {peak_pct:>6.1f}%  "
+            f"{end:>6.1f}%  {peak_pct-start:>+7.1f}pp"
+        )
 
 
 if __name__ == "__main__":

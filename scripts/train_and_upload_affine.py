@@ -60,7 +60,8 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     print(
-        f"Loading source model: {affine_cfg.source_model} @ {affine_cfg.source_revision}"
+        f"Loading source model: {affine_cfg.source_model} "
+        f"@ {affine_cfg.source_revision}"
     )
     source_model = AutoModelForCausalLM.from_pretrained(
         affine_cfg.source_model,
@@ -71,7 +72,8 @@ def main():
     source_model.eval()
 
     print(
-        f"Loading target model: {affine_cfg.target_model} @ {affine_cfg.target_revision}"
+        f"Loading target model: {affine_cfg.target_model} "
+        f"@ {affine_cfg.target_revision}"
     )
     target_model = AutoModelForCausalLM.from_pretrained(
         affine_cfg.target_model,

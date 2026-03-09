@@ -6,9 +6,8 @@ across all available sweep configs. Shows both old (multi-epoch) and new (1-epoc
 data where available.
 """
 
-import json
 import glob
-import os
+import json
 import re
 from pathlib import Path
 
@@ -42,17 +41,26 @@ def load_results_from_log(log_path):
 def find_best_config(runs_dir, rank):
     """Find the tamper config with highest peak WMDP for a given rank.
 
-    Checks: old multi-epoch dirs, rank sweep 1ep dirs/logs, ret coef 1ep dirs/logs (r=32 only).
+    Checks: old multi-epoch dirs,
+    rank sweep 1ep dirs/logs,
+    ret coef 1ep dirs/logs (r=32 only).
     """
     sweep_tags = [
-        "cosine_wr01_lr2e-5", "cosine_wr01_lr2e-4", "cosine_wr01_lr1e-3",
-        "cosine_ws30_lr2e-4", "cosine_ws100_lr2e-4",
-        "constant_wr01_lr2e-4", "cosine_warmup_lr2e-4",
+        "cosine_wr01_lr2e-5",
+        "cosine_wr01_lr2e-4",
+        "cosine_wr01_lr1e-3",
+        "cosine_ws30_lr2e-4",
+        "cosine_ws100_lr2e-4",
+        "constant_wr01_lr2e-4",
+        "cosine_warmup_lr2e-4",
     ]
     sweep_short_map = {
-        "cosine_wr01_lr2e-5": "lr5", "cosine_wr01_lr2e-4": "std",
-        "cosine_wr01_lr1e-3": "lr3", "cosine_ws30_lr2e-4": "ws30",
-        "cosine_ws100_lr2e-4": "ws100", "constant_wr01_lr2e-4": "con",
+        "cosine_wr01_lr2e-5": "lr5",
+        "cosine_wr01_lr2e-4": "std",
+        "cosine_wr01_lr1e-3": "lr3",
+        "cosine_ws30_lr2e-4": "ws30",
+        "cosine_ws100_lr2e-4": "ws100",
+        "constant_wr01_lr2e-4": "con",
     }
 
     best_data = None
@@ -134,36 +142,82 @@ def main():
         label = f"r={r} ({name})"
         if is_1ep:
             label += " [1ep]"
-        ax_wmdp.plot(steps, wmdp_accs, color=color, linewidth=lw, alpha=0.85,
-                     marker=marker, markersize=4, label=label)
+        ax_wmdp.plot(
+            steps,
+            wmdp_accs,
+            color=color,
+            linewidth=lw,
+            alpha=0.85,
+            marker=marker,
+            markersize=4,
+            label=label,
+        )
         has_mmlu = any(d.get("mmlu_acc") for d in data)
         if has_mmlu:
-            ax_mmlu.plot(steps, mmlu_accs, color=color, linewidth=lw, alpha=0.85,
-                         marker=marker, markersize=4, label=label)
+            ax_mmlu.plot(
+                steps,
+                mmlu_accs,
+                color=color,
+                linewidth=lw,
+                alpha=0.85,
+                marker=marker,
+                markersize=4,
+                label=label,
+            )
 
     if best_filtered:
         steps = [d["step"] for d in best_filtered]
         wmdp_accs = [d["wmdp_bio_acc"] * 100 for d in best_filtered]
         mmlu_accs = [d.get("mmlu_acc", float("nan")) * 100 for d in best_filtered]
         max_step = max(max_step, max(steps))
-        ax_wmdp.plot(steps, wmdp_accs, color="#e41a1c", linewidth=2.5, linestyle="--",
-                     label="Filtered model", zorder=10)
+        ax_wmdp.plot(
+            steps,
+            wmdp_accs,
+            color="#e41a1c",
+            linewidth=2.5,
+            linestyle="--",
+            label="Filtered model",
+            zorder=10,
+        )
         has_mmlu = any(d.get("mmlu_acc") for d in best_filtered)
         if has_mmlu:
-            ax_mmlu.plot(steps, mmlu_accs, color="#e41a1c", linewidth=2.5, linestyle="--",
-                         label="Filtered model", zorder=10)
+            ax_mmlu.plot(
+                steps,
+                mmlu_accs,
+                color="#e41a1c",
+                linewidth=2.5,
+                linestyle="--",
+                label="Filtered model",
+                zorder=10,
+            )
 
-    ax_wmdp.axhline(y=42.97, color="black", linestyle="--", linewidth=1, alpha=0.6,
-                     label="Baseline (42.97%)")
-    ax_wmdp.axhline(y=25, color="gray", linestyle=":", linewidth=1, alpha=0.5,
-                     label="Random (25%)")
-    ax_mmlu.axhline(y=44.76, color="black", linestyle="--", linewidth=1, alpha=0.6,
-                     label="Baseline MMLU (44.8%)")
-    ax_mmlu.axhline(y=25, color="gray", linestyle=":", linewidth=1, alpha=0.5,
-                     label="Random (25%)")
+    ax_wmdp.axhline(
+        y=42.97,
+        color="black",
+        linestyle="--",
+        linewidth=1,
+        alpha=0.6,
+        label="Baseline (42.97%)",
+    )
+    ax_wmdp.axhline(
+        y=25, color="gray", linestyle=":", linewidth=1, alpha=0.5, label="Random (25%)"
+    )
+    ax_mmlu.axhline(
+        y=44.76,
+        color="black",
+        linestyle="--",
+        linewidth=1,
+        alpha=0.6,
+        label="Baseline MMLU (44.8%)",
+    )
+    ax_mmlu.axhline(
+        y=25, color="gray", linestyle=":", linewidth=1, alpha=0.5, label="Random (25%)"
+    )
 
     ax_wmdp.set_ylabel("WMDP Bio Accuracy (%)", fontsize=12)
-    ax_wmdp.set_title("Tamper Attack Recovery by LoRA Rank (ret=0, 1 epoch)", fontsize=13)
+    ax_wmdp.set_title(
+        "Tamper Attack Recovery by LoRA Rank (ret=0, 1 epoch)", fontsize=13
+    )
     ax_wmdp.set_ylim(20, 50)
     ax_wmdp.grid(True, alpha=0.3)
     ax_wmdp.legend(loc="center left", bbox_to_anchor=(1, 0.5), fontsize=9)
@@ -182,7 +236,10 @@ def main():
     print(f"\nSaved: {out_path}")
 
     # Summary table
-    print(f"\n{'Rank':>6}  {'Config':<35s}  {'Start':>7}  {'Peak':>7}  {'End':>7}  {'Recovery':>9}  {'1ep?':>5}")
+    print(
+        f"\n{'Rank':>6}  {'Config':<35s}  {'Start':>7}  "
+        f"{'Peak':>7}  {'End':>7}  {'Recovery':>9}  {'1ep?':>5}"
+    )
     print("-" * 95)
     for r in ranks:
         if r not in rank_data:
@@ -192,13 +249,21 @@ def main():
         peak = max(d["wmdp_bio_acc"] for d in data) * 100
         end = data[-1]["wmdp_bio_acc"] * 100
         ep_tag = "yes" if is_1ep else "no"
-        print(f"{r:>6}  {name:<35s}  {start:>6.1f}%  {peak:>6.1f}%  {end:>6.1f}%  {peak-start:>+7.1f}pp  {ep_tag:>5}")
+        print(
+            f"{r:>6}  {name:<35s}  {start:>6.1f}%  "
+            f"{peak:>6.1f}%  {end:>6.1f}%  "
+            f"{peak-start:>+7.1f}pp  {ep_tag:>5}"
+        )
 
     if best_filtered:
         start = best_filtered[0]["wmdp_bio_acc"] * 100
         peak = max(d["wmdp_bio_acc"] for d in best_filtered) * 100
         end = best_filtered[-1]["wmdp_bio_acc"] * 100
-        print(f"{'filt':>6}  {best_filtered_name:<35s}  {start:>6.1f}%  {peak:>6.1f}%  {end:>6.1f}%  {peak-start:>+7.1f}pp    n/a")
+        print(
+            f"{'filt':>6}  {best_filtered_name:<35s} "
+            f" {start:>6.1f}%  {peak:>6.1f}%  "
+            f"{end:>6.1f}%  {peak-start:>+7.1f}pp    n/a"
+        )
 
 
 if __name__ == "__main__":
