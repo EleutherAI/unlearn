@@ -130,6 +130,7 @@ class SimpleNPOConfig:
     unlearn_corrupt: bool = False
     corrupt_ratio: float = 0.5
     corrupt_ds: str = "rewritten"
+    use_ultrachat: bool = False
 
 
 if __name__ == "__main__":

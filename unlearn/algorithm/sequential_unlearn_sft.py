@@ -46,6 +46,12 @@ class SequentialSftTrainer(Trainer):
         steps_per_phase,
         **kwargs,
     ):
+        if run_args.optimizer == "muon":
+            self.muon_param_names = {
+                name
+                for name, p in model.named_parameters()
+                if p.ndim >= 2 and p.size(0) < 50000
+            }
         super().__init__(
             model=model,
             args=args,
@@ -89,13 +95,14 @@ class SequentialSftTrainer(Trainer):
             DataLoader(self.train_dataset, **dataloader_params)
         )  # type: ignore
 
-    def create_optimizer(self):
+    def create_optimizer(self, model=None):
         if self.run_args.optimizer == "muon":
             self.optimizer = MuonAdamW(
-                self.model.parameters(),
+                self.model.named_parameters(),
                 lr=self.run_args.lr,
                 muon_momentum=self.run_args.muon_momentum,
                 weight_decay=self.args.weight_decay,
+                muon_param_names=self.muon_param_names,
             )
             return self.optimizer
         return super().create_optimizer()
@@ -650,6 +657,7 @@ if __name__ == "__main__":
         bf16=run_cfg.dtype == "bf16",
         max_grad_norm=run_cfg.max_grad_norm,
         save_strategy="no",
+        optim="adamw_torch",
         report_to="none",
         fsdp="full_shard auto_wrap",
         fsdp_config={

@@ -123,7 +123,7 @@ def main():
         print(f"filt : best={best_filtered_name:<35s} peak={best_peak*100:.1f}%")
 
     # Color map for ranks
-    cmap = plt.colormaps["viridis"]
+    cmap = plt.colormaps["viridis"] # type: ignore
 
     fig, (ax_wmdp, ax_mmlu) = plt.subplots(2, 1, figsize=(12, 11), sharex=True)
 

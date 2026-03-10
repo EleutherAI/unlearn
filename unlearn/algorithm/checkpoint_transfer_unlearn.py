@@ -74,7 +74,7 @@ class UnlearningTrainer(Trainer):
 
         if self.checkpoint_model is not None:
             self.checkpoint_layer_names = resolve_layer_names(
-                checkpoint_model, lora_target_layers
+                self.checkpoint_model, lora_target_layers
             )
             self.checkpoint_target_modules = list(self.checkpoint_layer_names.values())
 
@@ -144,7 +144,7 @@ class UnlearningTrainer(Trainer):
             dataloader_params["worker_init_fn"] = seed_worker
             dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
-        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
+        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))  # type: ignore
 
 
 class RRTrainer(UnlearningTrainer):
@@ -164,7 +164,6 @@ class RRTrainer(UnlearningTrainer):
             if hasattr(inputs["input_ids"], "device")
             else unwrapped_model.device
         )
-
         # === retain ===
         retain_input_ids = inputs.get("input_ids").to(target_device)  # type: ignore
         retain_attention_mask = inputs.get("attention_mask").to(target_device)  # type: ignore
@@ -208,7 +207,7 @@ class RRTrainer(UnlearningTrainer):
             if self.run_args.retain_ce_loss:
                 # Retain loss: Cross-entropy (standard LM loss)
                 unwrapped_model.train()
-                lora_retain_outputs = unwrapped_model(**retain_inputs_dict)
+                lora_retain_outputs = model(**retain_inputs_dict)
                 lora_retain_logits = lora_retain_outputs.logits
 
                 # Shift logits and labels for next-token prediction
@@ -248,19 +247,19 @@ class RRTrainer(UnlearningTrainer):
                 with adapter_context:
                     unwrapped_model.eval()
                     with torch.no_grad():
-                        orig_retain_outputs = unwrapped_model(**retain_inputs_dict)
+                        orig_retain_outputs = model(**retain_inputs_dict)
                         orig_retain_logits = orig_retain_outputs.logits
-                        if needs_mse:
-                            orig_retain_acts = {}
-                            for l in self.lora_target_layers:
-                                name = self.layer_id_to_name[l]
-                                orig_retain_acts[l] = retain_capturer.activations[
-                                    name
-                                ].detach()
-                            retain_capturer.clear()
+                    if needs_mse:
+                        orig_retain_acts = {}
+                        for l in self.lora_target_layers:
+                            name = self.layer_id_to_name[l]
+                            orig_retain_acts[l] = retain_capturer.activations[
+                                name
+                            ].detach()
+                        retain_capturer.clear()
 
                 unwrapped_model.train()
-                lora_retain_outputs = unwrapped_model(**retain_inputs_dict)
+                lora_retain_outputs = model(**retain_inputs_dict)
                 lora_retain_logits = lora_retain_outputs.logits
 
                 # Argmax matching accuracy for retain
@@ -349,7 +348,7 @@ class RRTrainer(UnlearningTrainer):
                 unwrapped_model, self.target_module_names
             )
             model_capturer.register()
-            lora_outputs = unwrapped_model(**cb_inputs_dict)
+            lora_outputs = model(**cb_inputs_dict)
             lora_logits = lora_outputs.logits
 
             # Argmax matching accuracy for forget
@@ -394,7 +393,10 @@ class RRTrainer(UnlearningTrainer):
 
                 del target_act, pred_act, layer_mse, mse_per_token
 
-            circuit_breaker_loss = cb_loss_accumulator / len(self.lora_target_layers)
+            circuit_breaker_loss = (
+                cb_loss_accumulator / len(self.lora_target_layers)
+                + lora_logits.sum() * 0
+            )
 
             ckpt_capturer.remove()
             model_capturer.remove()
@@ -410,7 +412,7 @@ class RRTrainer(UnlearningTrainer):
             with unwrapped_model.disable_adapter():
                 unwrapped_model.eval()
                 with torch.no_grad():
-                    unwrapped_model(**cb_inputs_dict)
+                    model(**cb_inputs_dict)
                     orig_cb_acts = {}
                     for l in self.lora_target_layers:
                         name = self.layer_id_to_name[l]
@@ -418,7 +420,7 @@ class RRTrainer(UnlearningTrainer):
                     fallback_capturer.clear()
 
             unwrapped_model.train()
-            unwrapped_model(**cb_inputs_dict)
+            model(**cb_inputs_dict)
 
             denom = circuit_breaker_attention_mask.sum() * len(self.lora_target_layers)
             cb_loss_total = torch.tensor(0.0, device=target_device)
@@ -490,11 +492,21 @@ class RRTrainer(UnlearningTrainer):
 
 
 class MuonRRTrainer(RRTrainer):
-    def create_optimizer(self):
+    def __init__(self, *args, **kwargs):
+        model = kwargs.get("model", args[1] if len(args) > 1 else None)
+        self.muon_param_names = {
+            name
+            for name, p in model.named_parameters()
+            if p.ndim >= 2 and p.size(0) < 50000
+        }
+        super().__init__(*args, **kwargs)
+
+    def create_optimizer(self, model=None):
         self.optimizer = MuonAdamW(
-            self.model.parameters(),
+            self.model.named_parameters(),
             lr=self.args.learning_rate,
             weight_decay=self.args.weight_decay,
+            muon_param_names=self.muon_param_names,
         )
         return self.optimizer
 
@@ -512,7 +524,9 @@ class CheckpointTransferConfig:
     alg: Literal["rr", "lat", "rr-lat"] = "rr"
     retain_coef: float = 5.0
     remove_coef: float = 5.0
-    lora_r: float = 16
+    lora_r: int = 16
+    lora_alpha: int = 16
+    lora_dropout: float = 0.05
     adv_lr: float = 2e-3
     attack_iters: int = 8
     lora: bool = True
@@ -537,6 +551,9 @@ class CheckpointTransferConfig:
     hidden_dim: int = 4096
     optimizer: Literal["adamw", "muon"] = "adamw"
     dtype: Literal["bf16", "fp16"] = "bf16"
+    use_fsdp2: bool = False
+    save_merged: bool = True
+    use_ultrachat: bool = False
 
 
 if __name__ == "__main__":
@@ -553,6 +570,10 @@ if __name__ == "__main__":
     assert (
         run_cfg.model_name in SUPPORTED_MODELS
     ), f"model_name must be one of {SUPPORTED_MODELS}, got {run_cfg.model_name}"
+
+    assert run_cfg.lora or run_cfg.retain_ce_loss, (
+        "SFT mode requires --retain_ce_loss=True (KL retain needs a frozen reference model)"
+    )
 
     print("Parsed arguments:")
     for arg, value in vars(run_cfg).items():
@@ -579,15 +600,16 @@ if __name__ == "__main__":
 
         lora_config = LoraConfig(
             r=run_cfg.lora_r,
-            lora_alpha=16,
+            lora_alpha=run_cfg.lora_alpha,
             target_modules=target_modules,
-            lora_dropout=0.05,
+            lora_dropout=run_cfg.lora_dropout,
             bias="none",
             layers_to_transform=lora_layers_to_transform,
             task_type="CAUSAL_LM",
         )
 
         model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
     model = cast(PreTrainedModel, model)
     model.enable_input_require_grads()
 
@@ -599,10 +621,11 @@ if __name__ == "__main__":
         f"{run_cfg.checkpoint_revision}"
     )
     ckpt_torch_dtype = torch.float16 if run_cfg.dtype == "fp16" else torch.bfloat16
+    ckpt_device_map = "auto" if run_cfg.use_fsdp2 else {"": local_rank}
     checkpoint_model = AutoModelForCausalLM.from_pretrained(
         run_cfg.checkpoint_name,
         revision=run_cfg.checkpoint_revision,
-        device_map={"": local_rank},
+        device_map=ckpt_device_map,
         torch_dtype=ckpt_torch_dtype,
     )
     checkpoint_model.eval()
@@ -689,6 +712,22 @@ if __name__ == "__main__":
         f"Grad Acc steps: {grad_acc_steps}."
     )
 
+    use_muon = run_cfg.optimizer == "muon"
+    use_fsdp = not run_cfg.lora or run_cfg.use_fsdp2 or use_muon
+    fsdp_kwargs: dict = {}
+    if use_fsdp:
+        fsdp_config: dict = {
+            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+            "activation_checkpointing": False,
+            "state_dict_type": "FULL_STATE_DICT",
+        }
+        if use_muon:
+            fsdp_config["fsdp_version"] = 2
+        fsdp_kwargs = dict(
+            fsdp="full_shard auto_wrap",
+            fsdp_config=fsdp_config,
+        )
+
     training_args = TrainingArguments(
         output_dir="./results",
         learning_rate=run_cfg.lr,
@@ -697,12 +736,14 @@ if __name__ == "__main__":
         per_device_eval_batch_size=run_cfg.pdbs,
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
-        gradient_checkpointing=True,
+        gradient_checkpointing=not use_fsdp,
         fp16=run_cfg.dtype == "fp16",
         bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
         warmup_steps=10 if run_cfg.lr_warmup else 0,
         ddp_find_unused_parameters=False,
+        optim="adamw_torch" if use_fsdp else "adamw_torch_fused",
+        **fsdp_kwargs,
     )
 
     TrainerClass = MuonRRTrainer if run_cfg.optimizer == "muon" else RRTrainer
@@ -721,10 +762,28 @@ if __name__ == "__main__":
     model.train()
     trainer.train()
 
-    if run_cfg.lora:
-        model = model.merge_and_unload()
-
     if run_cfg.save_path:
-        save_checkpoint(trainer, run_cfg.save_path, tokenizer)
+        if run_cfg.lora:
+            adapter_path = os.path.join(run_cfg.save_path, "adapter")
+            os.makedirs(adapter_path, exist_ok=True)
 
-    print("Done :)")
+            trainer.accelerator.wait_for_everyone()
+            if trainer.accelerator.is_main_process:
+                unwrapped = trainer.accelerator.unwrap_model(trainer.model)
+                unwrapped.save_pretrained(adapter_path, safe_serialization=True)
+                tokenizer.save_pretrained(adapter_path)
+                print(f"Saved LoRA adapter to {adapter_path}")
+
+                if run_cfg.save_merged:
+                    merged_path = os.path.join(run_cfg.save_path, "merged")
+                    os.makedirs(merged_path, exist_ok=True)
+                    merged_model = unwrapped.merge_and_unload()
+                    merged_model.save_pretrained(merged_path, safe_serialization=True)
+                    tokenizer.save_pretrained(merged_path)
+                    print(f"Saved merged model to {merged_path}")
+
+            trainer.accelerator.wait_for_everyone()
+        else:
+            save_checkpoint(trainer, run_cfg.save_path, tokenizer)
+
+    print("Done")

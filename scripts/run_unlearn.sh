@@ -44,6 +44,7 @@ NODES=1
 DTYPE="bf16"
 EXTRA=""
 DRY_RUN=false
+USE_ULTRACHAT=false
 
 # ── parse args ──
 while [[ $# -gt 0 ]]; do
@@ -64,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --dtype)        DTYPE="$2"; shift 2 ;;
         --extra)        EXTRA="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=true; shift ;;
+        --use_ultrachat) USE_ULTRACHAT=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -126,6 +128,7 @@ case "$ALG" in
             TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.checkpoint_transfer_unlearn \
     --remove_coef=$RM --retain_coef=$RET \
     --lora=False --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --retain_ce_loss=True --retain_kl_loss=False \
     --load_affine_from_hub=EleutherAI/affine-checkpoint-transfer \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
@@ -134,9 +137,9 @@ case "$ALG" in
         else
             TAG="ct_lora_ret${RET}_rm${RM}_r${RANK}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.lora_checkpoint_transfer \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.checkpoint_transfer_unlearn \
     --remove_coef=$RM --retain_coef=$RET \
-    --lora_r=$RANK --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --lora=True --lora_r=$RANK --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
     --load_affine_from_hub=EleutherAI/affine-checkpoint-transfer \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
@@ -149,17 +152,15 @@ case "$ALG" in
         [[ -z "$LR" ]] && LR="1e-3"
         [[ -z "$EXAMPLES" ]] && EXAMPLES=1024
         [[ -z "$PDBS" ]] && PDBS=1
+        OPTIMIZER_FLAG="adamw"
+        $MUON && OPTIMIZER_FLAG="muon"
         if $SFT; then
-            if $MUON; then
-                LENS_MODULE="unlearn.algorithm.lens_unlearn_muon"
-            else
-                LENS_MODULE="unlearn.algorithm.lens_unlearn_sft"
-            fi
             TAG="lens_sft_ret${RET}_rm${RM}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="torchrun --nproc_per_node=4 -m $LENS_MODULE \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.lens_unlearn \
     --remove_coef=$RM --retain_coef=$RET \
     --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --optimizer=$OPTIMIZER_FLAG \
     --lens_path=$LENS_DIR \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
@@ -168,13 +169,15 @@ case "$ALG" in
         else
             TAG="lens_lora_ret${RET}_rm${RM}_r${RANK}_lr${LR}_ex${EXAMPLES}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="python -m unlearn.algorithm.lens_unlearn \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.lens_unlearn \
     --remove_coef=$RM --retain_coef=$RET \
     --lora_r=$RANK --lora=True --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --optimizer=$OPTIMIZER_FLAG \
     --lens_path=$LENS_DIR \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
-            EVAL_MODEL="$MODEL_PATH"
+            EVAL_MODEL="$MODEL_PATH/merged"
+            TRAIN_GPUS="0,1,2,3"
         fi
         ;;
 
@@ -255,6 +258,12 @@ if $MUON; then
     if [[ "$ALG" != "lens" ]]; then
         TRAIN_CMD="$TRAIN_CMD --optimizer=muon"
     fi
+fi
+
+# ── ultrachat handling ──
+if $USE_ULTRACHAT; then
+    TAG="${TAG}_ultrachat"
+    TRAIN_CMD="$TRAIN_CMD --use_ultrachat=True"
 fi
 
 # ── sweep over LRs (comma-separated) ──
@@ -358,7 +367,7 @@ OUTPUT_JSON="$REPO_ROOT/runs/evals/eval_results_$CUR_TAG.json"
 TASKS="wmdp_bio_robust,mmlu"
 
 JOB_ID=\$(sbatch --parsable \
-    "$REPO_ROOT/unlearn/scripts/eval_checkpoint.sbatch" \
+    "$REPO_ROOT/scripts/eval_checkpoint.sbatch" \
     "$CUR_MODEL_PATH" \
     "\$OUTPUT_JSON" \
     "\$TASKS")

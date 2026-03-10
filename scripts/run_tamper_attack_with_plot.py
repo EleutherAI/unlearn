@@ -8,10 +8,9 @@ Execution modes:
     CUDA_VISIBLE_DEVICES="0" python -m unlearn.scripts.run_tamper_attack_with_plot ...
 
   DDP (data parallelism, 4 GPUs):
-    torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with_plot ...
-    grad_accumulation is automatically divided by world_size to keep effective batch
-    constant. Eval is submitted as async sbatch jobs; results are collected after
-    training.
+    torchrun --nproc_per_node=4 -m scripts.run_tamper_attack_with_plot ...
+    Effective batch = batch_size * grad_accumulation * world_size.
+    Eval is submitted as async sbatch jobs; results are collected after training.
 """
 
 import argparse
@@ -165,7 +164,7 @@ class TamperAttackConfig:
     eval_every: int = 500
     lr: float = 2e-5
     batch_size: int = 1
-    grad_accumulation: int = 16
+    grad_accumulation: int = 4
     eval_cloze_prob: bool = False
     eval_mmlu: bool = False
     optimizer: Literal["adamw", "muon"] = "adamw"
@@ -246,7 +245,7 @@ def _submit_eval_sbatch(
     checkpoint_dir: Path, output_json: Path, tasks: list[str]
 ) -> str:
     """Submit an eval sbatch job and return the SLURM job ID."""
-    sbatch_path = REPO_ROOT / "unlearn" / "scripts" / "eval_checkpoint.sbatch"
+    sbatch_path = REPO_ROOT / "scripts" / "eval_checkpoint.sbatch"
     tasks_str = ",".join(tasks)
     cmd = [
         "sbatch",
@@ -701,7 +700,13 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
             dataset = dataset.select(range(config.num_train_examples))
         print(f"Selected {len(dataset)} chunks")
     elif config.tamper_data == "benign":
-        half = config.num_train_examples // 2
+        num_examples = config.num_train_examples
+        if num_examples == 0:
+            world_size = int(os.environ.get("WORLD_SIZE", 1))
+            eff_batch = config.batch_size * config.grad_accumulation * world_size
+            num_examples = config.max_steps * eff_batch // max(config.epochs, 1)
+            num_examples = max(num_examples, 1000)
+        half = num_examples // 2
         print(f"Preparing benign dataset (WikiText + UltraChat, {half} chunks each)...")
         wiki_chunks = prepare_wikitext_examples(
             tokenizer, num_examples=half, seed=config.seed
@@ -716,7 +721,13 @@ def prepare_dataset(config: TamperAttackConfig, tokenizer):
         dataset = hf_dataset.from_list(chunked_examples)
         del chunked_examples
     elif config.tamper_data == "bio_chat":
-        half = config.num_train_examples // 2
+        num_examples = config.num_train_examples
+        if num_examples == 0:
+            world_size = int(os.environ.get("WORLD_SIZE", 1))
+            eff_batch = config.batch_size * config.grad_accumulation * world_size
+            num_examples = config.max_steps * eff_batch // max(config.epochs, 1)
+            num_examples = max(num_examples, 1000)
+        half = num_examples // 2
         print(f"Preparing mixed dataset (WMDP-Bio + UltraChat, {half} chunks each)...")
         bio_ds = prepare_bio_examples(config, tokenizer)
         bio_chunks = list(bio_ds.select(range(min(half, len(bio_ds)))))
@@ -961,23 +972,17 @@ def run_tamper_attack(config: TamperAttackConfig):
         total = sum(p.numel() for p in model.parameters())
         print(f"LoRA trainable: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
 
-    # Adjust grad_accumulation for DDP to keep effective batch constant
-    adjusted_grad_acc = config.grad_accumulation // world_size
-    assert adjusted_grad_acc * world_size == config.grad_accumulation, (
-        f"grad_accumulation ({config.grad_accumulation}) must be divisible by "
-        f"world_size ({world_size})"
-    )
     if ddp:
         print(
             f"DDP: world_size={world_size}, "
-            f"grad_acc {config.grad_accumulation} -> {adjusted_grad_acc}, "
+            f"grad_acc={config.grad_accumulation}, "
             f"effective batch = {config.batch_size} "
-            f"* {adjusted_grad_acc} * {world_size} "
-            f"= {config.batch_size * adjusted_grad_acc * world_size}"
+            f"* {config.grad_accumulation} * {world_size} "
+            f"= {config.batch_size * config.grad_accumulation * world_size}"
         )
 
     dataset = prepare_dataset(config, tokenizer)
-    effective_batch = config.batch_size * adjusted_grad_acc * world_size
+    effective_batch = config.batch_size * config.grad_accumulation * world_size
     steps_per_epoch = len(dataset) // effective_batch
 
     assert config.max_steps > 0, (
@@ -1025,7 +1030,7 @@ def run_tamper_attack(config: TamperAttackConfig):
     training_args = TrainingArguments(
         output_dir=str(output_dir / "checkpoints"),
         learning_rate=config.lr,
-        gradient_accumulation_steps=adjusted_grad_acc,
+        gradient_accumulation_steps=config.grad_accumulation,
         per_device_train_batch_size=config.batch_size,
         per_device_eval_batch_size=config.batch_size,
         num_train_epochs=config.epochs,

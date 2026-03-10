@@ -150,7 +150,7 @@ JOB_NAME="tamp-${MODEL_TAG:0:20}"
 OUT_FILE="${REPO_ROOT}/runs/${TAG}-%j.out"
 
 # ── build torchrun command ──
-TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.scripts.run_tamper_attack_with_plot \
+TRAIN_CMD="torchrun --nproc_per_node=4 -m scripts.run_tamper_attack_with_plot \
     --model_name=${MODEL} \
     --output_dir=${OUTPUT_DIR} \
     --lr=${CURRENT_LR} \

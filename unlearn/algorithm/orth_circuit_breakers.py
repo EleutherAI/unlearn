@@ -56,7 +56,7 @@ class UnlearningTrainer(Trainer):
         self.layer_id_to_name = resolve_layer_names(model, lora_target_layers)
         self.target_module_names = list(self.layer_id_to_name.values())
 
-    def create_optimizer(self):
+    def create_optimizer(self, model=None):
         if self.use_muon:
             self.optimizer = MuonAdamW(
                 self.model.parameters(),
@@ -357,6 +357,7 @@ class OrthCircuitBreakerConfig:
     num_train_epochs: int = 1
     dtype: Literal["bf16", "fp16"] = "bf16"
     retain_warmup: bool = False
+    use_ultrachat: bool = False
 
 
 if __name__ == "__main__":
@@ -451,6 +452,7 @@ if __name__ == "__main__":
         fp16=run_cfg.dtype == "fp16",
         bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
+        optim="adamw_torch",
         ddp_find_unused_parameters=False,
     )
 

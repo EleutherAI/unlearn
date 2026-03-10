@@ -249,6 +249,7 @@ class BaseUnlearnConfig:
     save_path: str = ""
     revision: str = "main"
     hidden_dim: int = 4096
+    use_ultrachat: bool = False
 
 
 if __name__ == "__main__":

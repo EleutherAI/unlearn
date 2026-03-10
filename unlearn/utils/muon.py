@@ -16,18 +16,27 @@ class MuonAdamW(torch.optim.Optimizer):
         adam_betas=(0.9, 0.95),
         adam_eps=1e-8,
         weight_decay=0.01,
+        muon_param_names: set[str] | None = None,
     ):
         muon_params = []
         adam_params = []
 
-        for p in params:
-            if not p.requires_grad:
-                continue
-
-            if p.ndim >= 2 and p.size(0) < 50000:
-                muon_params.append(p)
-            else:
-                adam_params.append(p)
+        if muon_param_names is not None:
+            for name, p in params:
+                if not p.requires_grad:
+                    continue
+                if name in muon_param_names:
+                    muon_params.append(p)
+                else:
+                    adam_params.append(p)
+        else:
+            for p in params:
+                if not p.requires_grad:
+                    continue
+                if p.ndim >= 2 and p.size(0) < 50000:
+                    muon_params.append(p)
+                else:
+                    adam_params.append(p)
 
         self.optimizers = []
 

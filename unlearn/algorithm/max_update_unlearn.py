@@ -27,6 +27,7 @@ from transformers import (
 from transformers.trainer_utils import seed_worker
 
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
+from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.worker_utils import (
     get_model_and_tokenizer,
     save_checkpoint,
@@ -121,14 +122,21 @@ class MaxUpdateTrainer(Trainer):
             if k not in layer_param_fullnames
         }
 
-    def create_optimizer(self):
+    def create_optimizer(self, model=None):
         params = [p for p in self.model.parameters() if p.requires_grad]
-        self.optimizer = torch.optim.AdamW(
-            params,
-            lr=self.args.learning_rate,
-            weight_decay=self.args.weight_decay,
-            fused=False,
-        )
+        if self.run_cfg.optimizer == "muon":
+            self.optimizer = MuonAdamW(
+                self.model.parameters(),
+                lr=self.args.learning_rate,
+                weight_decay=self.args.weight_decay,
+            )
+        else:
+            self.optimizer = torch.optim.AdamW(
+                params,
+                lr=self.args.learning_rate,
+                weight_decay=self.args.weight_decay,
+                fused=False,
+            )
         return self.optimizer
 
     def get_train_dataloader(self) -> DataLoader:
@@ -358,10 +366,12 @@ class MaxUpdateConfig:
     lora_r: int = 16
     layers: list[int] = field(default_factory=lambda: list(range(32)))
     model_name: str = "EleutherAI/deep-ignorance-unfiltered"
+    optimizer: Literal["adamw", "muon"] = "adamw"
     dtype: Literal["bf16", "fp16"] = "bf16"
     save_path: str = ""
     revision: str = "main"
     hidden_dim: int = 4096
+    use_ultrachat: bool = False
 
 
 if __name__ == "__main__":

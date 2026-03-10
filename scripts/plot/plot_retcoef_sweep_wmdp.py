@@ -101,7 +101,7 @@ def main():
             results[ret["tag"]] = (data, cfg, peak, ret["label"])
             print(f"{ret['label']:>12s}: best={cfg:<6s} peak={peak*100:.1f}%")
 
-    cmap = plt.colormaps["coolwarm"]
+    cmap = plt.colormaps["coolwarm"] # type: ignore
     fig, ax = plt.subplots(figsize=(12, 7))
 
     max_step = 0
