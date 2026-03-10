@@ -1,5 +1,16 @@
+import re
+
 import torch
 from torch.optim import AdamW, Muon
+
+_FSDP_INNER_RE = re.compile(r"\._fsdp_wrapped_module\.|\._checkpoint_wrapped_module\.")
+_FSDP_ROOT_RE = re.compile(r"^_fsdp_wrapped_module\.")
+
+
+def _strip_fsdp_prefix(name: str) -> str:
+    """Strip FSDP1 wrapper segments to recover the original parameter name."""
+    name = _FSDP_INNER_RE.sub(".", name)
+    return _FSDP_ROOT_RE.sub("", name)
 
 
 class MuonAdamW(torch.optim.Optimizer):
@@ -25,7 +36,8 @@ class MuonAdamW(torch.optim.Optimizer):
             for name, p in params:
                 if not p.requires_grad:
                     continue
-                if name in muon_param_names:
+                clean_name = _strip_fsdp_prefix(name)
+                if clean_name in muon_param_names:
                     muon_params.append(p)
                 else:
                     adam_params.append(p)
@@ -37,6 +49,14 @@ class MuonAdamW(torch.optim.Optimizer):
                     muon_params.append(p)
                 else:
                     adam_params.append(p)
+
+        assert muon_params, (
+            f"MuonAdamW found 0 Muon-eligible parameters out of "
+            f"{len(muon_params) + len(adam_params)} total. "
+            f"This usually means FSDP flattened the parameters before the "
+            f"optimizer was created. Capture muon_param_names before FSDP "
+            f"wrapping and pass them explicitly."
+        )
 
         self.optimizers = []
 

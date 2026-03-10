@@ -105,7 +105,11 @@ class SequentialSftTrainer(Trainer):
                 muon_param_names=self.muon_param_names,
             )
             return self.optimizer
-        return super().create_optimizer()
+        result = super().create_optimizer(model)
+        for group in self.optimizer.param_groups:
+            group["fused"] = False
+        self.optimizer.defaults["fused"] = False
+        return result
 
     def _get_phase_info(self):
         """Handles scheduled information, including the current targeted layer
@@ -636,6 +640,10 @@ if __name__ == "__main__":
     total_epochs = math.ceil(total_training_calls / steps_per_epoch)
 
     use_muon = run_cfg.optimizer == "muon"
+    assert not use_muon, (
+        "Muon is incompatible with FSDP v1 (flattens params to 1D, "
+        "Muon requires 2D). FSDP v2 breaks param.grad access."
+    )
 
     print(
         f"Running with {world_size} GPUs. Per device batch: {run_cfg.pdbs}. "
