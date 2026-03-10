@@ -379,3 +379,15 @@ Sweep over a number of configurations, trying both fp16 and bf16, cosine and lin
 - lr=1e-4 with constant LR also degraded MMLU to 44.1%
 - Use linear lr schedule
 - Use `--epochs=2 --eval_every=500 --eval_mmlu`
+
+## Test Parallelism Strategy
+
+When you change an unlearn algorithm's distributed implementation, test it with multiple training setups:
+
+Examples:
+```bash
+bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft
+bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --r 16
+bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft --muon
+bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft --dtype fp16
+```

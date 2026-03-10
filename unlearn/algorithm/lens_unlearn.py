@@ -1,17 +1,21 @@
 """Unlearning via entropy maximization at frozen tuned lens layers.
 
-Supports LoRA (DDP) and SFT (FSDP1) with AdamW or Muon optimizer.
+Supports LoRA (DDP) and SFT (FSDP2) with AdamW or Muon optimizer.
 """
 
+import json
 import os
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from accelerate.hooks import remove_hook_from_module
 from peft import LoraConfig, get_peft_model
 from simple_parsing import ArgumentParser
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.fsdp import fully_shard
 from torch.utils.data import DataLoader
 from transformers import (
     AutoModelForCausalLM,
@@ -27,7 +31,7 @@ from unlearn.utils.hook import ActivationCapture, resolve_layer_names
 from unlearn.utils.keyword_masks import apply_keyword_masks
 from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
+from unlearn.utils.worker_utils import get_model_and_tokenizer
 
 
 def load_tuned_lenses(lens_path, model, device):
@@ -168,6 +172,16 @@ class LensUnlearningTrainer(Trainer):
             dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
 
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))  # type: ignore
+
+    def _prepare_for_training(self, max_steps, train_dataloader, resume_from_checkpoint):
+        """Skip accelerate's model wrapping when FSDP2 is applied externally."""
+        if not self.run_args.lora:
+            self.create_optimizer()
+            self.optimizer = self.accelerator.prepare(self.optimizer)
+            self.create_scheduler(num_training_steps=max_steps)
+            self.model_wrapped = self.model
+            return self.model, train_dataloader
+        return super()._prepare_for_training(max_steps, train_dataloader, resume_from_checkpoint)
 
     def _get_scheduled_coeffs(self):
         world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -614,6 +628,16 @@ if __name__ == "__main__":
         f"Grad Acc steps: {grad_acc_steps}."
     )
 
+    # Apply FSDP2 for SFT mode
+    if not run_cfg.lora:
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+        torch.cuda.set_device(local_rank)
+        for layer in model.gpt_neox.layers:
+            fully_shard(layer)
+        fully_shard(model)
+        print(f"FSDP2 applied: {sum(1 for _ in model.parameters())} params as DTensors")
+
     use_muon = run_cfg.optimizer == "muon"
 
     if run_cfg.lora:
@@ -634,14 +658,6 @@ if __name__ == "__main__":
             ddp_find_unused_parameters=False,
         )
     else:
-        fsdp_config: dict = {
-            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-            "state_dict_type": "FULL_STATE_DICT",
-        }
-        if use_muon:
-            fsdp_config["fsdp_version"] = 2
-            fsdp_config["activation_checkpointing"] = True
-
         training_args = TrainingArguments(
             output_dir="./results",
             learning_rate=run_cfg.lr,
@@ -657,8 +673,7 @@ if __name__ == "__main__":
             max_grad_norm=1.0,
             save_strategy="no",
             optim="adamw_torch",
-            fsdp="full_shard auto_wrap",
-            fsdp_config=fsdp_config,
+            ddp_find_unused_parameters=False,
         )
 
     if run_cfg.lora:
@@ -710,6 +725,29 @@ if __name__ == "__main__":
                 print(f"Saved merged model to {merged_path}")
             trainer.accelerator.wait_for_everyone()
         else:
-            save_checkpoint(trainer, run_cfg.save_path, tokenizer)
+            state_dict = get_model_state_dict(
+                model,
+                options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+            )
+            if local_rank == 0:
+                os.makedirs(run_cfg.save_path, exist_ok=True)
+                model.save_pretrained(
+                    run_cfg.save_path,
+                    state_dict=state_dict,
+                    safe_serialization=True,
+                )
+                tokenizer.save_pretrained(run_cfg.save_path)
+                config_path = os.path.join(run_cfg.save_path, "config.json")
+                if os.path.exists(config_path):
+                    with open(config_path) as f:
+                        config_dict = json.load(f)
+                    if config_dict.get("dtype") is None:
+                        config_dict["dtype"] = config_dict.get(
+                            "torch_dtype", "float32"
+                        )
+                        with open(config_path, "w") as f:
+                            json.dump(config_dict, f, indent=2)
+            if dist.is_initialized():
+                dist.barrier()
 
     print("Done")

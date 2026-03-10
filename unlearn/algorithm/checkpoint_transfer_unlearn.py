@@ -1,14 +1,18 @@
 import csv
 import gc
+import json
 import os
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from peft import LoraConfig, get_peft_model
 from simple_parsing import ArgumentParser
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.fsdp import fully_shard
 from torch.utils.data import DataLoader
 from transformers import (
     AutoModelForCausalLM,
@@ -122,6 +126,18 @@ class UnlearningTrainer(Trainer):
             writer.writerow(
                 [step, forget_argmax, retain_argmax, retain_loss, cb_loss, total_loss]
             )
+
+    def _prepare_for_training(self, max_steps, train_dataloader, resume_from_checkpoint):
+        """Skip accelerate's model wrapping when FSDP2 is applied externally."""
+        if self.run_args.use_fsdp2:
+            self.create_optimizer()
+            self.optimizer = self.accelerator.prepare(self.optimizer)
+            self.create_scheduler(num_training_steps=max_steps)
+            self.model_wrapped = self.model
+            return self.model, train_dataloader
+        return super()._prepare_for_training(
+            max_steps, train_dataloader, resume_from_checkpoint
+        )
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -551,7 +567,7 @@ class CheckpointTransferConfig:
     hidden_dim: int = 4096
     optimizer: Literal["adamw", "muon"] = "adamw"
     dtype: Literal["bf16", "fp16"] = "bf16"
-    use_fsdp2: bool = False
+    use_fsdp2: bool = True
     save_merged: bool = True
     use_ultrachat: bool = False
 
@@ -621,7 +637,7 @@ if __name__ == "__main__":
         f"{run_cfg.checkpoint_revision}"
     )
     ckpt_torch_dtype = torch.float16 if run_cfg.dtype == "fp16" else torch.bfloat16
-    ckpt_device_map = "auto" if run_cfg.use_fsdp2 else {"": local_rank}
+    ckpt_device_map = {"": local_rank}
     checkpoint_model = AutoModelForCausalLM.from_pretrained(
         run_cfg.checkpoint_name,
         revision=run_cfg.checkpoint_revision,
@@ -707,25 +723,31 @@ if __name__ == "__main__":
     global_batch_size = run_cfg.global_batch_size
     grad_acc_steps = max(1, global_batch_size // (run_cfg.pdbs * world_size))
 
+    # Apply FSDP2 for SFT mode
+    use_fsdp2 = run_cfg.use_fsdp2 and not run_cfg.lora
+    if use_fsdp2:
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+        torch.cuda.set_device(local_rank)
+        for layer in model.gpt_neox.layers:
+            fully_shard(layer)
+        fully_shard(model)
+        print(f"FSDP2 applied: {sum(1 for _ in model.parameters())} params as DTensors")
+
     print(
         f"Running with {world_size} GPUs. Per device batch: {run_cfg.pdbs}. "
         f"Grad Acc steps: {grad_acc_steps}."
     )
 
-    use_muon = run_cfg.optimizer == "muon"
-    use_fsdp = not run_cfg.lora or run_cfg.use_fsdp2 or use_muon
     fsdp_kwargs: dict = {}
-    if use_fsdp:
-        fsdp_config: dict = {
-            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-            "activation_checkpointing": False,
-            "state_dict_type": "FULL_STATE_DICT",
-        }
-        if use_muon:
-            fsdp_config["fsdp_version"] = 2
+    if not run_cfg.lora and not use_fsdp2:
         fsdp_kwargs = dict(
             fsdp="full_shard auto_wrap",
-            fsdp_config=fsdp_config,
+            fsdp_config={
+                "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
+                "activation_checkpointing": False,
+                "state_dict_type": "FULL_STATE_DICT",
+            },
         )
 
     training_args = TrainingArguments(
@@ -736,13 +758,13 @@ if __name__ == "__main__":
         per_device_eval_batch_size=run_cfg.pdbs,
         num_train_epochs=run_cfg.epochs,
         weight_decay=0.01,
-        gradient_checkpointing=not use_fsdp,
+        gradient_checkpointing=run_cfg.lora and not use_fsdp2,
         fp16=run_cfg.dtype == "fp16",
         bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
         warmup_steps=10 if run_cfg.lr_warmup else 0,
         ddp_find_unused_parameters=False,
-        optim="adamw_torch" if use_fsdp else "adamw_torch_fused",
+        optim="adamw_torch",
         **fsdp_kwargs,
     )
 
@@ -783,6 +805,31 @@ if __name__ == "__main__":
                     print(f"Saved merged model to {merged_path}")
 
             trainer.accelerator.wait_for_everyone()
+        elif use_fsdp2:
+            state_dict = get_model_state_dict(
+                model,
+                options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+            )
+            if local_rank == 0:
+                os.makedirs(run_cfg.save_path, exist_ok=True)
+                model.save_pretrained(
+                    run_cfg.save_path,
+                    state_dict=state_dict,
+                    safe_serialization=True,
+                )
+                tokenizer.save_pretrained(run_cfg.save_path)
+                config_path = os.path.join(run_cfg.save_path, "config.json")
+                if os.path.exists(config_path):
+                    with open(config_path) as f:
+                        config_dict = json.load(f)
+                    if config_dict.get("dtype") is None:
+                        config_dict["dtype"] = config_dict.get(
+                            "torch_dtype", "float32"
+                        )
+                        with open(config_path, "w") as f:
+                            json.dump(config_dict, f, indent=2)
+            if dist.is_initialized():
+                dist.barrier()
         else:
             save_checkpoint(trainer, run_cfg.save_path, tokenizer)
 

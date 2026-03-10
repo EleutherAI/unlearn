@@ -1,11 +1,11 @@
-"""Sequential back-to-front unlearning (SFT - full parameter training with FSDP).
+"""Sequential back-to-front unlearning (SFT - full parameter training with FSDP2).
 
-This module manages FSDP2 wrapping internally because it dynamically toggles
-requires_grad on individual parameters for layer-wise freezing. Launch with
-torchrun or accelerate without an FSDP config — an outer FSDP config will
-double-wrap the model and break the internal grad-shard bookkeeping.
+Applies FSDP2 (fully_shard) internally for per-layer gradient manipulation.
+Launch with ``torchrun --nproc_per_node=N`` — do NOT pass an outer FSDP config
+via TrainingArguments or accelerate, as that would double-wrap the model.
 """
 
+import json
 import math
 import os
 from dataclasses import dataclass
@@ -15,6 +15,8 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from simple_parsing import ArgumentParser
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.fsdp import fully_shard
 from torch.utils.data import DataLoader
 from transformers import (
     AutoModelForCausalLM,
@@ -29,7 +31,7 @@ from unlearn.utils.keyword_masks import apply_keyword_masks
 from unlearn.utils.math import max_entropy_kl_loss
 from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
-from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
+from unlearn.utils.worker_utils import get_model_and_tokenizer
 
 
 class SequentialSftTrainer(Trainer):
@@ -94,6 +96,14 @@ class SequentialSftTrainer(Trainer):
         return self.accelerator.prepare(
             DataLoader(self.train_dataset, **dataloader_params)
         )  # type: ignore
+
+    def _prepare_for_training(self, max_steps, train_dataloader, resume_from_checkpoint):
+        """Skip accelerate's model wrapping (FSDP2 applied externally)."""
+        self.create_optimizer()
+        self.optimizer = self.accelerator.prepare(self.optimizer)
+        self.create_scheduler(num_training_steps=max_steps)
+        self.model_wrapped = self.model
+        return self.model, train_dataloader
 
     def create_optimizer(self, model=None):
         if self.run_args.optimizer == "muon":
@@ -340,12 +350,20 @@ class SequentialSftTrainer(Trainer):
                 if hasattr(g, "to_local"):
                     g = g.to_local()
                 total_norm_sq += g.float().pow(2).sum()
+        if dist.is_initialized():
+            dist.all_reduce(total_norm_sq)
         return total_norm_sq.sqrt().item()
 
     def training_step(self, model, inputs, num_items_in_batch=None):
         model.train()
         inputs = self._prepare_inputs(inputs)
         target_device = inputs["input_ids"].device
+
+        amp_ctx = torch.amp.autocast(
+            "cuda",
+            dtype=torch.float16 if self.args.fp16 else torch.bfloat16,
+            enabled=self.args.fp16 or self.args.bf16,
+        )
 
         phase_idx, target_layer, retain_coeff, forget_coeff = self._get_phase_info()
         target_str = f".layers.{target_layer}."
@@ -384,19 +402,20 @@ class SequentialSftTrainer(Trainer):
             l2sp_handle = target_module.register_forward_hook(_l2sp_hook)
 
         # Retain backward (+ L2-SP if enabled): save target layer grads, then zero
-        if self.run_args.retain_loss_type == "nll":
-            retain_loss = self._compute_nll_retain_loss(model, inputs, target_device)
-        elif self.run_args.retain_loss_type == "l2":
-            retain_loss = self._compute_l2_retain_loss(
-                model, inputs, sorted(keep_layers), target_device
-            )
-        else:
-            retain_loss = self._compute_retain_loss(model, inputs, target_device)
-        if l2sp_handle is not None:
-            l2sp_handle.remove()
-            if l2sp_terms:
-                l2sp_loss = self.run_args.l2sp_coef * torch.stack(l2sp_terms).sum()
-                l2sp_norm = l2sp_loss.item()
+        with amp_ctx:
+            if self.run_args.retain_loss_type == "nll":
+                retain_loss = self._compute_nll_retain_loss(model, inputs, target_device)
+            elif self.run_args.retain_loss_type == "l2":
+                retain_loss = self._compute_l2_retain_loss(
+                    model, inputs, sorted(keep_layers), target_device
+                )
+            else:
+                retain_loss = self._compute_retain_loss(model, inputs, target_device)
+            if l2sp_handle is not None:
+                l2sp_handle.remove()
+                if l2sp_terms:
+                    l2sp_loss = self.run_args.l2sp_coef * torch.stack(l2sp_terms).sum()
+                    l2sp_norm = l2sp_loss.item()
         self.accelerator.backward(retain_coeff * retain_loss + l2sp_loss)
         retain_grad_norm = self._compute_grad_norm(model, target_str)
         retain_grads = {}
@@ -406,9 +425,10 @@ class SequentialSftTrainer(Trainer):
         model.zero_grad(set_to_none=False)
 
         # Forget backward
-        forget_loss = self._compute_forget_loss(
-            model, inputs, target_layer, target_device
-        )
+        with amp_ctx:
+            forget_loss = self._compute_forget_loss(
+                model, inputs, target_layer, target_device
+            )
         self.accelerator.backward(forget_coeff * forget_loss)
         forget_grad_norm = self._compute_grad_norm(model, target_str)
 
@@ -588,7 +608,9 @@ if __name__ == "__main__":
     if run_cfg.wandb_project and local_rank == 0:
         wandb.init(project=run_cfg.wandb_project, config=vars(run_cfg))
 
-    model, tokenizer = get_model_and_tokenizer(run_cfg.model_name)
+    model, tokenizer = get_model_and_tokenizer(
+        run_cfg.model_name, dtype=run_cfg.dtype
+    )
     model = cast(PreTrainedModel, model)
 
     for param in model.parameters():
@@ -619,6 +641,16 @@ if __name__ == "__main__":
     )
     print(f"Layers to unlearn (back-to-front): {layers_to_unlearn}")
 
+    # Apply FSDP2 before Trainer creation
+    if world_size > 1:
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+        torch.cuda.set_device(local_rank)
+        for layer in model.gpt_neox.layers:
+            fully_shard(layer)
+        fully_shard(model)
+        print(f"FSDP2 applied: {sum(1 for _ in model.parameters())} params as DTensors")
+
     global_batch_size = 32
     grad_acc_steps = max(1, global_batch_size // (run_cfg.pdbs * world_size))
     base_steps_per_phase = max(
@@ -638,12 +670,6 @@ if __name__ == "__main__":
     total_training_calls = sum(phase_steps_list)
     steps_per_epoch = len(train_dataset) // (world_size * run_cfg.pdbs)
     total_epochs = math.ceil(total_training_calls / steps_per_epoch)
-
-    use_muon = run_cfg.optimizer == "muon"
-    assert not use_muon, (
-        "Muon is incompatible with FSDP v1 (flattens params to 1D, "
-        "Muon requires 2D). FSDP v2 breaks param.grad access."
-    )
 
     print(
         f"Running with {world_size} GPUs. Per device batch: {run_cfg.pdbs}. "
@@ -667,12 +693,6 @@ if __name__ == "__main__":
         save_strategy="no",
         optim="adamw_torch",
         report_to="none",
-        fsdp="full_shard auto_wrap",
-        fsdp_config={
-            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-            "activation_checkpointing": run_cfg.gradient_checkpointing,
-            "state_dict_type": "FULL_STATE_DICT",
-        },
     )
 
     trainer = SequentialSftTrainer(
@@ -690,6 +710,30 @@ if __name__ == "__main__":
     trainer.train()
 
     if run_cfg.save_path:
-        save_checkpoint(trainer, run_cfg.save_path, tokenizer)
+        if world_size > 1:
+            state_dict = get_model_state_dict(
+                model,
+                options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+            )
+        else:
+            state_dict = model.state_dict()
+        if local_rank == 0:
+            os.makedirs(run_cfg.save_path, exist_ok=True)
+            model.save_pretrained(
+                run_cfg.save_path,
+                state_dict=state_dict,
+                safe_serialization=True,
+            )
+            tokenizer.save_pretrained(run_cfg.save_path)
+            config_path = os.path.join(run_cfg.save_path, "config.json")
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    config_dict = json.load(f)
+                if config_dict.get("dtype") is None:
+                    config_dict["dtype"] = config_dict.get("torch_dtype", "float32")
+                    with open(config_path, "w") as f:
+                        json.dump(config_dict, f, indent=2)
+        if dist.is_initialized():
+            dist.barrier()
 
     print("Training complete")

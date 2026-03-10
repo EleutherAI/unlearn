@@ -8,6 +8,7 @@ pushes the model away from dangerous capabilities.
 Loss = retain_coef * sft_loss - update_coef * ||theta - theta_0||^2
 """
 
+import json
 import os
 import sys
 from dataclasses import dataclass, field
@@ -18,6 +19,9 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from peft import LoraConfig, get_peft_model
 from simple_parsing import ArgumentParser
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.fsdp import fully_shard
+from torch.distributed.tensor import DTensor
 from torch.utils.data import DataLoader
 from transformers import (
     PreTrainedModel,
@@ -30,7 +34,6 @@ from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.worker_utils import (
     get_model_and_tokenizer,
-    save_checkpoint,
 )
 
 
@@ -74,6 +77,12 @@ class MaxUpdateTrainer(Trainer):
         train_dataset,
         tokenizer,
     ):
+        if run_cfg.optimizer == "muon":
+            self.muon_param_names = {
+                name
+                for name, p in model.named_parameters()
+                if p.ndim >= 2 and p.size(0) < 50000
+            }
         super().__init__(
             model=model,
             args=args,
@@ -84,12 +93,15 @@ class MaxUpdateTrainer(Trainer):
         self.current_training_step = 0
         self.tokenizer = tokenizer
 
-        # Clone initial trainable params to CPU
+        # Clone initial trainable params to CPU (full tensors, not shards)
         self.initial_params: dict[str, torch.Tensor] = {}
         self.total_trainable_params = 0
         for name, param in model.named_parameters():
             if param.requires_grad:
-                self.initial_params[name] = param.data.clone().cpu()
+                p = param.data
+                if isinstance(p, DTensor):
+                    p = p.full_tensor()
+                self.initial_params[name] = p.clone().cpu()
                 self.total_trainable_params += param.numel()
 
         print(
@@ -126,9 +138,10 @@ class MaxUpdateTrainer(Trainer):
         params = [p for p in self.model.parameters() if p.requires_grad]
         if self.run_cfg.optimizer == "muon":
             self.optimizer = MuonAdamW(
-                self.model.parameters(),
+                self.model.named_parameters(),
                 lr=self.args.learning_rate,
                 weight_decay=self.args.weight_decay,
+                muon_param_names=self.muon_param_names,
             )
         else:
             self.optimizer = torch.optim.AdamW(
@@ -138,6 +151,18 @@ class MaxUpdateTrainer(Trainer):
                 fused=False,
             )
         return self.optimizer
+
+    def _prepare_for_training(self, max_steps, train_dataloader, resume_from_checkpoint):
+        """Skip accelerate's model wrapping (FSDP2 applied externally)."""
+        if not self.run_cfg.lora:
+            self.create_optimizer()
+            self.optimizer = self.accelerator.prepare(self.optimizer)
+            self.create_scheduler(num_training_steps=max_steps)
+            self.model_wrapped = self.model
+            return self.model, train_dataloader
+        return super()._prepare_for_training(
+            max_steps, train_dataloader, resume_from_checkpoint
+        )
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -172,9 +197,10 @@ class MaxUpdateTrainer(Trainer):
                 for pname, param in module.named_parameters():
                     if pname not in layer_init_params or not param.requires_grad:
                         continue
-                    w0 = layer_init_params[pname].to(param.device, dtype=param.dtype)
+                    p = param.full_tensor() if isinstance(param, DTensor) else param
+                    w0 = layer_init_params[pname].to(p.device, dtype=p.dtype)
                     term, nsq = _compute_update_term(
-                        param, w0, self.run_cfg.element_norm
+                        p, w0, self.run_cfg.element_norm
                     )
                     update_terms.append(term)
                     norm_sq_terms.append(nsq)
@@ -201,9 +227,10 @@ class MaxUpdateTrainer(Trainer):
                 for pname, param in module.named_parameters():
                     if pname not in non_layer or not param.requires_grad:
                         continue
-                    w0 = non_layer[pname].to(param.device, dtype=param.dtype)
+                    p = param.full_tensor() if isinstance(param, DTensor) else param
+                    w0 = non_layer[pname].to(p.device, dtype=p.dtype)
                     term, nsq = _compute_update_term(
-                        param, w0, self.run_cfg.element_norm
+                        p, w0, self.run_cfg.element_norm
                     )
                     update_terms.append(term)
                     norm_sq_terms.append(nsq)
@@ -254,8 +281,13 @@ class MaxUpdateTrainer(Trainer):
             else torch.tensor(0.0, device=target_device)
         )
 
-        if dist.is_initialized():
-            dist.all_reduce(update_norm_sq, op=dist.ReduceOp.SUM)
+        # DTensor ops during forward hooks produce DTensors. Extract the local
+        # tensor for manual collective ops. During forward, params are gathered
+        # (Replicate), so each rank has the full value — no all_reduce needed.
+        if isinstance(update_loss, DTensor):
+            update_loss = update_loss.to_local()
+        if isinstance(update_norm_sq, DTensor):
+            update_norm_sq = update_norm_sq.to_local()
 
         if self.run_cfg.same_sign_grads:
             # Two-pass backward: update first, then SFT, filter by sign.
@@ -292,10 +324,11 @@ class MaxUpdateTrainer(Trainer):
                     key = name.removeprefix("module.")
                     if not (param.requires_grad and key in self.initial_params):
                         continue
+                    pd = param.data.full_tensor() if isinstance(param.data, DTensor) else param.data
                     init_p = self.initial_params[key].to(
-                        param.device, dtype=param.dtype
+                        pd.device, dtype=pd.dtype
                     )
-                    diff = param.data - init_p
+                    diff = pd - init_p
                     if self.run_cfg.element_norm:
                         rms = diff.pow(2).mean().sqrt()
                         unit_dir = diff / rms if rms > 1e-8 else diff
@@ -396,7 +429,7 @@ if __name__ == "__main__":
     print()
 
     model, tokenizer = get_model_and_tokenizer(
-        run_cfg.model_name, revision=run_cfg.revision
+        run_cfg.model_name, revision=run_cfg.revision, dtype=run_cfg.dtype
     )
 
     train_dataset = get_unlearning_dataset(run_cfg, tokenizer, NUM_PROC)
@@ -432,7 +465,18 @@ if __name__ == "__main__":
     model = cast(PreTrainedModel, model)
     model.enable_input_require_grads()
 
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
+
+    if not run_cfg.lora and world_size > 1:
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+        torch.cuda.set_device(local_rank)
+        for layer in model.gpt_neox.layers:
+            fully_shard(layer)
+        fully_shard(model)
+        print(f"FSDP2 applied: {sum(1 for _ in model.parameters())} params as DTensors")
+
     global_batch_size = 32
     grad_acc_steps = max(
         1,
@@ -458,12 +502,6 @@ if __name__ == "__main__":
         bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
         optim="adamw_torch",
-        fsdp="full_shard auto_wrap",
-        fsdp_config={
-            "auto_wrap_policy": "TRANSFORMER_BASED_WRAP",
-            "activation_checkpointing": True,
-            "state_dict_type": "FULL_STATE_DICT",
-        },
     )
 
     trainer = MaxUpdateTrainer(
@@ -481,6 +519,27 @@ if __name__ == "__main__":
         model = model.merge_and_unload()
 
     if run_cfg.save_path:
-        save_checkpoint(trainer, run_cfg.save_path, tokenizer)
+        if not run_cfg.lora and world_size > 1:
+            state_dict = get_model_state_dict(
+                model, options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+            )
+        else:
+            state_dict = model.state_dict()
+        if local_rank == 0:
+            os.makedirs(run_cfg.save_path, exist_ok=True)
+            model.save_pretrained(
+                run_cfg.save_path, state_dict=state_dict, safe_serialization=True,
+            )
+            tokenizer.save_pretrained(run_cfg.save_path)
+            config_path = os.path.join(run_cfg.save_path, "config.json")
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    config_dict = json.load(f)
+                if config_dict.get("dtype") is None:
+                    config_dict["dtype"] = config_dict.get("torch_dtype", "float32")
+                    with open(config_path, "w") as f:
+                        json.dump(config_dict, f, indent=2)
+        if dist.is_initialized():
+            dist.barrier()
 
     print("Done.")
