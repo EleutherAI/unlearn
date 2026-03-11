@@ -372,7 +372,7 @@ class SequentialUnlearnConfig:
     use_max_entropy_kl: bool = False
     use_top_k_entropy: bool = False
     top_k: int = 100
-    use_ultrachat: bool = True
+    use_ultrachat: bool = False
     dtype: Literal["bf16", "fp16"] = "bf16"
 
 

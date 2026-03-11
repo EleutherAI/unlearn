@@ -51,9 +51,6 @@ def unwrap_model(model):
 
 
 def get_model_and_tokenizer(model_name, revision="main", dm="auto", dtype="bf16"):
-    # fp16 mixed precision needs fp32 master weights (GradScaler unscales fp32 grads);
-    # bf16 has no GradScaler so native bf16 weights are fine.
-    torch_dtype = torch.float32 if dtype == "fp16" else torch.bfloat16
     # Check if running in distributed mode (accelerate/torchrun sets LOCAL_RANK)
     local_rank = os.environ.get("LOCAL_RANK")
 
@@ -62,7 +59,8 @@ def get_model_and_tokenizer(model_name, revision="main", dm="auto", dtype="bf16"
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             revision=revision,
-            torch_dtype=torch_dtype,
+            # DO NOT TOUCH OR I WILL END YOU
+            torch_dtype=torch.float32,
             use_cache=False,
             device_map=None,
         )
@@ -71,7 +69,8 @@ def get_model_and_tokenizer(model_name, revision="main", dm="auto", dtype="bf16"
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             revision=revision,
-            torch_dtype=torch_dtype,
+            # DO NOT TOUCH OR I WILL END YOU
+            torch_dtype=torch.float32,
             device_map=dm,
             use_cache=False,
         )

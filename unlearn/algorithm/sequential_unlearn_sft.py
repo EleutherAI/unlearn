@@ -558,7 +558,7 @@ class SequentialSftUnlearnConfig:
     save_path: str = ""
     epochs_per_layer: int = 1
     warmup_ratio: float = 0.0
-    use_ultrachat: bool = True
+    use_ultrachat: bool = False
     use_max_entropy_kl: bool = False
     use_top_k_entropy: bool = False
     top_k: int = 100

@@ -23,6 +23,7 @@
 #   --nodes           Number of SLURM nodes (default: 1)
 #   --time            SLURM time limit (default: 6:00:00)
 #   --dtype           Mixed precision: bf16 or fp16 (default: bf16)
+#   --tag-suffix      Extra suffix appended to the generated run tag/model path
 #   --extra           Extra args passed verbatim to the training script
 #   --dry-run         Print the sbatch script without submitting
 
@@ -42,6 +43,7 @@ MUON=false
 TIME="6:00:00"
 NODES=1
 DTYPE="bf16"
+TAG_SUFFIX=""
 EXTRA=""
 DRY_RUN=false
 USE_ULTRACHAT=false
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --time)         TIME="$2"; shift 2 ;;
         --nodes)        NODES="$2"; shift 2 ;;
         --dtype)        DTYPE="$2"; shift 2 ;;
+        --tag-suffix)   TAG_SUFFIX="$2"; shift 2 ;;
         --extra)        EXTRA="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=true; shift ;;
         --use_ultrachat) USE_ULTRACHAT=true; shift ;;
@@ -264,6 +267,10 @@ fi
 if $USE_ULTRACHAT; then
     TAG="${TAG}_ultrachat"
     TRAIN_CMD="$TRAIN_CMD --use_ultrachat=True"
+fi
+
+if [[ -n "$TAG_SUFFIX" ]]; then
+    TAG="${TAG}_${TAG_SUFFIX}"
 fi
 
 # ── sweep over LRs (comma-separated) ──
