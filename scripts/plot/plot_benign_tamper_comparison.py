@@ -15,10 +15,15 @@ DIRNAME_PATTERN = re.compile(
     r"tamper_(.+?)_" + re.escape(TAMPER_DATA) + r"_lr([\d.e-]+)_s(\d+)_(\w+)_(\w+)"
 )
 
+E2E_FILTER_HASH = "b28797cd9b615104ba9d24e6900336253323e7cf"
+
+_TAB20 = plt.cm.tab20(np.linspace(0, 1, 20))
 DISPLAY_NAMES = {
     "seq_sft_ret0_rm5_lr2e-4_nn2": "Seq ret0 rm5 lr2e-4",
     "ct_sft_muon_ret0_rm2000": "CT Muon ret0 rm2000",
+    E2E_FILTER_HASH: "E2E Filter",
 }
+MODEL_COLORS = {tag: _TAB20[i % len(_TAB20)] for i, tag in enumerate(DISPLAY_NAMES)}
 
 
 def parse_tamper_dirname(dirname: str) -> dict | None:
@@ -105,8 +110,6 @@ def plot_metric(
     output_path: Path,
 ):
     fig, ax = plt.subplots(figsize=(14, 7))
-    colors = plt.cm.tab20(np.linspace(0, 1, 20))
-    color_idx = 0
 
     sorted_tags = sorted(
         best_per_group.keys(),
@@ -133,17 +136,18 @@ def plot_metric(
             steps = [steps[i] for i in indices]
             accs = [accs[i] for i in indices]
 
+        is_filter = tag == E2E_FILTER_HASH
         ax.plot(
             steps,
             accs,
-            color=colors[color_idx % len(colors)],
-            linewidth=2,
-            alpha=0.85,
-            marker="o",
+            color=MODEL_COLORS[tag],
+            linewidth=2.5 if is_filter else 2,
+            alpha=0.9 if is_filter else 0.85,
+            marker="D" if is_filter else "o",
             markersize=4,
+            linestyle="--" if is_filter else "-",
             label=f"{name} ({config_label})",
         )
-        color_idx += 1
 
     ax.axhline(
         y=baseline_val,

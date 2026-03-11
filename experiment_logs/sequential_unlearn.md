@@ -340,3 +340,31 @@ Plots saved in `runs/tamper_attack/` and `runs/tamper_kl_rm5_ret100/`.
 | Muon+KW+L2SP (rm5/ret2, L31-11) | 0.3848 | 0.4113 | 0.3998 | 0.4401 | 0.4401 | 0.4435 | 0.4412 | 0.4424 | 0.4459 | 0.4435 | 0.4424 | 0.4435 |
 
 All four models show rapid recovery by step 10-30. Plots saved in `runs/tamper_attack_muon_kw_rm5_ret2/`, `runs/tamper_attack_nllret_rm2_ret200/`, `runs/tamper_attack_sft_l2_uc_rm14_ret1/`, `runs/tamper_attack_muon_kw_l2sp/`.
+
+## Token Scaling Experiments
+
+Investigating how unlearning scales with training data budget. SFT, 2 nodes / 8 GPUs, pdbs=1, layers 31→0 (step 1).
+
+Baseline (1x): 1024 examples, WMDP=0.4297, MMLU=0.4510
+
+### 2x Data (2048 examples) - AdamW
+
+| remove_coef | retain_coef | lr | Steps | WMDP Bio Robust | MMLU | Job |
+|-------------|-------------|------|-------|-----------------|------|-----|
+| - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 5 | 0 | 1e-4 | 256 | | | 2727304 |
+| 5 | 2 | 2e-4 | 256 | | | 2727305 |
+| 3 | 0 | 2e-4 | 256 | | | 2727306 |
+| 3 | 2 | 2e-4 | 256 | | | 2727307 |
+| 5 | 2 | 1e-4 | 256 | | | 2727308 |
+
+### 2x Data (2048 examples) - Muon
+
+| remove_coef | retain_coef | lr | Steps | WMDP Bio Robust | MMLU | Job |
+|-------------|-------------|------|-------|-----------------|------|-----|
+| - | - | - | - | 0.4297 | 0.4510 | Baseline |
+| 5 | 0 | 2e-4 | 256 | | | 2727378 |
+| 5 | 2 | 2e-4 | 256 | | | 2727379 |
+| 3 | 0 | 2e-4 | 256 | | | 2727380 |
+| 5 | 0 | 1e-4 | 256 | | | 2727381 |
+| 5 | 2 | 1e-4 | 256 | | | 2727382 |

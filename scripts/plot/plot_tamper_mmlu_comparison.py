@@ -138,6 +138,7 @@ def load_filter_bio_forget_tamper(metric: str = "MMLU") -> tuple[list[int], list
     return [], []
 
 
+_TAB20 = plt.cm.tab20(np.linspace(0, 1, 20))
 DISPLAY_NAMES = {
     "cb_sft_ret0_rm10_orth5_lr1e-4": "CB ret0 rm10 orth5 lr1e-4",
     "cb_sft_ret2_rm10_orth5_lr1e-4": "CB ret2 rm10 orth5 lr1e-4",
@@ -150,6 +151,7 @@ DISPLAY_NAMES = {
     "seq_sft_ret0_rm5_lr2e-4_nn2": "Seq ret0 rm5 lr2e-4",
     "seq_sft_ret2_rm5_lr2e-4_nn2": "Seq ret2 rm5 lr2e-4",
 }
+MODEL_COLORS = {tag: _TAB20[i % len(_TAB20)] for i, tag in enumerate(DISPLAY_NAMES)}
 
 
 def main():
@@ -157,9 +159,6 @@ def main():
     bio_forget_steps, bio_forget_mmlu = load_filter_bio_forget_tamper("MMLU")
 
     fig, ax = plt.subplots(figsize=(14, 7))
-
-    colors = plt.cm.tab20(np.linspace(0, 1, 20))
-    color_idx = 0
 
     # Sort by starting MMLU (ascending) for visual clarity
     sorted_tags = sorted(
@@ -187,14 +186,13 @@ def main():
         ax.plot(
             steps,
             mmlu_accs,
-            color=colors[color_idx % len(colors)],
+            color=MODEL_COLORS[tag],
             linewidth=2,
             alpha=0.85,
             marker="o",
             markersize=4,
             label=f"{name} ({config_label})",
         )
-        color_idx += 1
 
     # Plot bio_forget filter tamper
     if bio_forget_steps and bio_forget_mmlu:
@@ -225,7 +223,7 @@ def main():
 
     ax.set_xlabel("Tampering Step", fontsize=12)
     ax.set_ylabel("MMLU Accuracy (%)", fontsize=12)
-    ax.set_title("MMLU Under Tampering: Best Config per Model", fontsize=14)
+    ax.set_title("MMLU Under bio_remove Tampering: Best Config per Model", fontsize=14)
     ax.legend(loc="center left", bbox_to_anchor=(1, 0.5), fontsize=9)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(15, 50)

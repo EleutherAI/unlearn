@@ -138,6 +138,8 @@ def load_filter_bio_forget_tamper(metric: str = "WMDP") -> tuple[list[int], list
 
 
 # To exclude a run, comment out or remove its entry.
+# Colors are fixed per model tag so WMDP and MMLU plots are consistent.
+_TAB20 = plt.cm.tab20(np.linspace(0, 1, 20))
 DISPLAY_NAMES = {
     "cb_sft_ret0_rm10_orth5_lr1e-4": "CB ret0 rm10 orth5 lr1e-4",
     "cb_sft_ret2_rm10_orth5_lr1e-4": "CB ret2 rm10 orth5 lr1e-4",
@@ -145,14 +147,12 @@ DISPLAY_NAMES = {
     "lens_sft_ret0": "Lens ret0 rm5 lr1e-3",
     "lens_sft_ret0_rm100_lr1e-4": "Lens ret0 rm100 lr1e-4",
     "lens_sft_ret5_rm5_lr1e-3": "Lens ret5 lr1e-3",
-    # "lens_sft_ret5_rm5_lr1e-4": "Lens ret5 lr1e-4",
-    # "lens_sft_ret5_rm5_lr2e-4": "Lens ret5 lr2e-4",
-    # "lens_sft_ret5_rm5_lr5e-5": "Lens ret5 lr5e-5",
     "mu_sft_ret1e-3_up1_lr5e-5": "MU ret1e-3 up1 lr5e-5",
     "mu_sft_ret140_up1_lr5e-5": "MU ret140 up1 lr5e-5",
     "seq_sft_ret0_rm5_lr2e-4_nn2": "Seq ret0 rm5 lr2e-4",
     "seq_sft_ret2_rm5_lr2e-4_nn2": "Seq ret2 rm5 lr2e-4",
 }
+MODEL_COLORS = {tag: _TAB20[i % len(_TAB20)] for i, tag in enumerate(DISPLAY_NAMES)}
 
 
 def main():
@@ -160,10 +160,6 @@ def main():
     bio_forget_steps, bio_forget_wmdp = load_filter_bio_forget_tamper()
 
     fig, ax = plt.subplots(figsize=(14, 7))
-
-    # Use a qualitative colormap
-    colors = plt.cm.tab20(np.linspace(0, 1, 20))
-    color_idx = 0
 
     # Sort by starting WMDP (ascending) for visual clarity
     sorted_tags = sorted(
@@ -179,7 +175,6 @@ def main():
 
         # Subsample if too many points (eval_every=10 runs)
         if len(steps) > 50:
-            # Take every ~500 steps
             indices = [0]
             for i in range(1, len(steps)):
                 if steps[i] - steps[indices[-1]] >= 450:
@@ -192,14 +187,13 @@ def main():
         ax.plot(
             steps,
             accs,
-            color=colors[color_idx % len(colors)],
+            color=MODEL_COLORS[tag],
             linewidth=2,
             alpha=0.85,
             marker="o",
             markersize=4,
             label=f"{name} ({config_label})",
         )
-        color_idx += 1
 
     # Plot bio_forget filter tamper
     if bio_forget_steps and bio_forget_wmdp:
@@ -230,7 +224,7 @@ def main():
 
     ax.set_xlabel("Tampering Step", fontsize=12)
     ax.set_ylabel("WMDP Bio Robust Accuracy (%)", fontsize=12)
-    ax.set_title("WMDP Recovery Under Tampering: Best Config per Model", fontsize=14)
+    ax.set_title("WMDP Recovery Under bio_remove Tampering: Best Config per Model", fontsize=14)
     ax.legend(loc="center left", bbox_to_anchor=(1, 0.5), fontsize=9)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(15, 50)

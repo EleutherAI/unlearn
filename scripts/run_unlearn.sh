@@ -121,7 +121,7 @@ case "$ALG" in
     checkpoint|ct)
         [[ -z "$LR" ]] && LR="1e-3"
         [[ -z "$EXAMPLES" ]] && EXAMPLES=2048
-        [[ -z "$PDBS" ]] && PDBS=1
+        [[ -z "$PDBS" ]] && PDBS=2
         if $SFT; then
             TAG="ct_sft_ret${RET}_rm${RM}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"

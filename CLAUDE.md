@@ -71,7 +71,7 @@ If the effective epoch count exceeds 1, flag it.
 
 ## Learning rates
 
-When training a LoRA the most common successful value is lr=1e-3 or below. When doing SFT it's around 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug.
+When training a LoRA the most common successful value is lr=5e-4 or below. When doing SFT it's around 2e-4. Don't push SFT higher than 5e-4 without permission - if you're failing to get learning with an lr above this you likely have a bug. Don't use an lr of 1e-3 or higher. Our version of Muon uses the same learning rates as Adam so use the same low values for Muon.
 
 # Project Structure and Conventions
 
