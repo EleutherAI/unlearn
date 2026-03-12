@@ -53,27 +53,19 @@ def unwrap_model(model):
 def get_model_and_tokenizer(model_name, revision="main", dm="auto", dtype="bf16"):
     # Check if running in distributed mode (accelerate/torchrun sets LOCAL_RANK)
     local_rank = os.environ.get("LOCAL_RANK")
+    device_map = dm if local_rank is None else None
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        revision=revision,
+        # DO NOT TOUCH OR I WILL END YOU
+        torch_dtype=torch.float32,
+        device_map=device_map,
+        use_cache=False,
+    )
 
     if local_rank is not None:
-        device = f"cuda:{local_rank}"
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            revision=revision,
-            # DO NOT TOUCH OR I WILL END YOU
-            torch_dtype=torch.float32,
-            use_cache=False,
-            device_map=None,
-        )
-        model = model.to(device)  # type: ignore
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            revision=revision,
-            # DO NOT TOUCH OR I WILL END YOU
-            torch_dtype=torch.float32,
-            device_map=dm,
-            use_cache=False,
-        )
+        model = model.to(f"cuda:{local_rank}")  # type: ignore
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
     tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
