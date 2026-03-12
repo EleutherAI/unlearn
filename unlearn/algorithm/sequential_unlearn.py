@@ -26,6 +26,7 @@ from transformers.trainer_utils import seed_worker
 from unlearn.utils.hook import ActivationCapture, resolve_layer_names
 from unlearn.utils.keyword_masks import apply_keyword_masks
 from unlearn.utils.math import max_entropy_kl_loss, top_k_entropy_loss
+from unlearn.utils.muon import MuonAdamW
 from unlearn.utils.unlearning_dataset import get_unlearning_dataset
 from unlearn.utils.worker_utils import get_model_and_tokenizer, save_checkpoint
 
@@ -128,6 +129,12 @@ class SequentialUnlearningTrainer(Trainer):
         retain_layers=None,
         **kwargs,
     ):
+        if run_args.optimizer == "muon":
+            self.muon_param_names = {
+                name
+                for name, p in model.named_parameters()
+                if p.ndim >= 2 and p.size(0) < 50000
+            }
         super().__init__(
             model=model,
             args=args,
@@ -161,6 +168,18 @@ class SequentialUnlearningTrainer(Trainer):
             self.orig_retain_target_modules = list(
                 self.orig_retain_layer_names.values()
             )
+
+    def create_optimizer(self, model=None):
+        if self.run_args.optimizer == "muon":
+            self.optimizer = MuonAdamW(
+                self.model.named_parameters(),
+                lr=self.args.learning_rate,
+                muon_momentum=self.run_args.muon_momentum,
+                weight_decay=self.args.weight_decay,
+                muon_param_names=self.muon_param_names,
+            )
+            return self.optimizer
+        return super().create_optimizer()
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -374,6 +393,8 @@ class SequentialUnlearnConfig:
     top_k: int = 100
     use_ultrachat: bool = False
     dtype: Literal["bf16", "fp16"] = "bf16"
+    optimizer: Literal["adamw", "muon"] = "adamw"
+    muon_momentum: float = 0.95
 
 
 def main():

@@ -77,14 +77,7 @@ done
 [[ -z "$RM" ]]  && { echo "Error: --rm is required"; exit 1; }
 [[ -z "$RET" ]] && { echo "Error: --ret is required"; exit 1; }
 
-if $MUON && ! $SFT; then
-    case "$ALG" in
-        lens|sequential|seq|maxupdate|mu)
-            echo "Error: --muon requires --sft for algorithm $ALG (LoRA variant has no muon support)"
-            exit 1
-            ;;
-    esac
-fi
+
 
 # ── per-algorithm defaults ──
 REPO_ROOT="/projects/a6a/public/lucia/home/unlearn"
@@ -195,7 +188,7 @@ case "$ALG" in
             TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.sequential_unlearn_sft \
     --remove_coef=$RM --retain_coef=$RET \
     --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
-    --start_layer=31 --end_layer=0 --layer_step=1 --optimizer=adamw \
+    --start_layer=31 --end_layer=0 --layer_step=1 \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"

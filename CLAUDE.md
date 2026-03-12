@@ -387,7 +387,7 @@ You can combine these like so:
 
 Examples:
 ```bash
-bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --r 16
-bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft --muon
-bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft --dtype fp16
+bash scripts/run_unlearn.sh -a seq --rm 5 --ret 1 --r 16
+bash scripts/run_unlearn.sh -a seq --rm 5 --ret 1 --sft --muon
+bash scripts/run_unlearn.sh -a seq --rm 5 --ret 1 --sft --dtype fp16
 ```

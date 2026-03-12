@@ -14,7 +14,10 @@ import torch.nn.functional as F
 from accelerate.hooks import remove_hook_from_module
 from peft import LoraConfig, get_peft_model
 from simple_parsing import ArgumentParser
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.checkpoint.state_dict import (
+    StateDictOptions,
+    get_model_state_dict,
+)
 from torch.distributed.fsdp import fully_shard
 from torch.utils.data import DataLoader
 from transformers import (
@@ -173,7 +176,9 @@ class LensUnlearningTrainer(Trainer):
 
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))  # type: ignore
 
-    def _prepare_for_training(self, max_steps, train_dataloader, resume_from_checkpoint):
+    def _prepare_for_training(
+        self, max_steps, train_dataloader, resume_from_checkpoint
+    ):
         """Skip accelerate's model wrapping when FSDP2 is applied externally."""
         if not self.run_args.lora:
             self.create_optimizer()
@@ -181,7 +186,9 @@ class LensUnlearningTrainer(Trainer):
             self.create_scheduler(num_training_steps=max_steps)
             self.model_wrapped = self.model
             return self.model, train_dataloader
-        return super()._prepare_for_training(max_steps, train_dataloader, resume_from_checkpoint)
+        return super()._prepare_for_training(
+            max_steps, train_dataloader, resume_from_checkpoint
+        )
 
     def _get_scheduled_coeffs(self):
         world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -667,7 +674,7 @@ if __name__ == "__main__":
             per_device_eval_batch_size=run_cfg.pdbs,
             num_train_epochs=run_cfg.epochs,
             weight_decay=0.01,
-            gradient_checkpointing=False,
+            gradient_checkpointing=True,
             fp16=run_cfg.dtype == "fp16",
             bf16=run_cfg.dtype == "bf16",
             max_grad_norm=1.0,
@@ -742,9 +749,7 @@ if __name__ == "__main__":
                     with open(config_path) as f:
                         config_dict = json.load(f)
                     if config_dict.get("dtype") is None:
-                        config_dict["dtype"] = config_dict.get(
-                            "torch_dtype", "float32"
-                        )
+                        config_dict["dtype"] = config_dict.get("torch_dtype", "float32")
                         with open(config_path, "w") as f:
                             json.dump(config_dict, f, indent=2)
             if dist.is_initialized():
