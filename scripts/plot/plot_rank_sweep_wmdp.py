@@ -91,8 +91,9 @@ def find_best_config(runs_dir, rank):
 
 
 def main():
-    runs_dir = Path("/home/a6a/lucia.a6a/unlearn/runs")
-    out_dir = Path("/home/a6a/lucia.a6a/unlearn/experiment_logs")
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    runs_dir = repo_root / "runs"
+    out_dir = repo_root / "experiment_logs"
 
     ranks = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
     rank_data = {}
@@ -123,7 +124,7 @@ def main():
         print(f"filt : best={best_filtered_name:<35s} peak={best_peak*100:.1f}%")
 
     # Color map for ranks
-    cmap = plt.colormaps["viridis"] # type: ignore
+    cmap = plt.colormaps["viridis"]  # type: ignore
 
     fig, (ax_wmdp, ax_mmlu) = plt.subplots(2, 1, figsize=(12, 11), sharex=True)
 

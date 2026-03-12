@@ -100,25 +100,26 @@ case "$ALG" in
         if $SFT; then
             TAG="cb_sft_ret${RET}_rm${RM}_orth${ORTH}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="python -m unlearn.algorithm.orth_circuit_breakers \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.orth_circuit_breakers \
     --remove_coef=$RM --retain_coef=$RET --orth_coef=$ORTH \
     --lora=False --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
     --retain_warmup=True \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
+            TRAIN_GPUS="0,1,2,3"
         else
             TAG="cb_lora_ret${RET}_rm${RM}_orth${ORTH}_r${RANK}_lr${LR}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="python -m unlearn.algorithm.orth_circuit_breakers \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.orth_circuit_breakers \
     --remove_coef=$RM --retain_coef=$RET --orth_coef=$ORTH \
     --lora_r=$RANK --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
     --retain_warmup=True \
     --model_name=EleutherAI/deep-ignorance-unfiltered \
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
+            TRAIN_GPUS="0,1,2,3"
         fi
-        TRAIN_GPUS="0"
         ;;
 
     checkpoint|ct)
@@ -346,6 +347,7 @@ export CXX=/usr/bin/g++-12
 export PIP_CACHE_DIR="/projects/a6a/public/lucia/pip_cache"
 export TMPDIR="/projects/a6a/public/lucia/tmp"
 export WANDB_MODE=disabled
+export PYTORCH_ALLOC_CONF=expandable_segments:True
 mkdir -p \$PIP_CACHE_DIR \$TMPDIR
 
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}, Device count: {torch.cuda.device_count()}')"
@@ -365,6 +367,11 @@ if [ ! -d "$CUR_EVAL_MODEL" ]; then
     exit 1
 fi
 
+if [ ! -f "$CUR_EVAL_MODEL/config.json" ]; then
+    echo "ERROR: Model config missing at $CUR_EVAL_MODEL/config.json"
+    exit 1
+fi
+
 echo "===== WMDP + MMLU Eval ====="
 
 export CUDA_VISIBLE_DEVICES="0,1,2,3"
@@ -375,7 +382,7 @@ TASKS="wmdp_bio_robust,mmlu"
 
 JOB_ID=\$(sbatch --parsable \
     "$REPO_ROOT/scripts/eval_checkpoint.sbatch" \
-    "$CUR_MODEL_PATH" \
+    "$CUR_EVAL_MODEL" \
     "\$OUTPUT_JSON" \
     "\$TASKS")
 

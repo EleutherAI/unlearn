@@ -214,26 +214,16 @@ Starting WMDP: 26.2%, Starting MMLU: 24.5%
 
 Investigating how unlearning scales with training data budget. SFT, 4 GPUs, pdbs=2.
 
-Baseline (1x): 2048 examples, WMDP=0.4297, MMLU=0.4510
+Pre-unlearning baseline: WMDP=0.4297, MMLU=0.4510
 
 ### 2x Data (4096 examples) - AdamW
 
 | remove_coef | retain_coef | lr | Steps | WMDP Bio Robust | MMLU | Job |
 |-------------|-------------|------|-------|-----------------|------|-----|
 | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 2000 | 0 | 1e-3 | 512 | | | 2727309 |
-| 1000 | 0 | 1e-3 | 512 | | | 2727310 |
-| 2000 | 5 | 1e-3 | 512 | | | 2727311 |
-| 500 | 0 | 1e-3 | 512 | | | 2727312 |
-| 2000 | 0 | 5e-4 | 512 | | | 2727313 |
 
 ### 2x Data (4096 examples) - Muon
 
 | remove_coef | retain_coef | lr | Steps | WMDP Bio Robust | MMLU | Job |
 |-------------|-------------|------|-------|-----------------|------|-----|
 | - | - | - | - | 0.4297 | 0.4510 | Baseline |
-| 2000 | 0 | 1e-3 | 512 | | | 2727324 |
-| 1000 | 0 | 1e-3 | 512 | | | 2727325 |
-| 2000 | 5 | 1e-3 | 512 | | | 2727326 |
-| 500 | 0 | 1e-3 | 512 | | | 2727327 |
-| 2000 | 0 | 5e-4 | 512 | | | 2727328 |

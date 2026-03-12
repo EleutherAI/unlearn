@@ -9,8 +9,12 @@ import matplotlib.pyplot as plt
 
 def main():
     # Load results
-    results_path = Path(
-        "/home/a6a/lucia.a6a/unlearn/runs/tamper_attack_orth100_256/tamper_results_20260128_013124.json"
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    results_path = (
+        repo_root
+        / "runs"
+        / "tamper_attack_orth100_256"
+        / "tamper_results_20260128_013124.json"
     )
     with open(results_path) as f:
         results = json.load(f)
@@ -102,9 +106,7 @@ def main():
     plt.tight_layout()
 
     # Save plot
-    output_path = Path(
-        "/home/a6a/lucia.a6a/unlearn/experiment_logs/tampering_orth100_256.png"
-    )
+    output_path = repo_root / "experiment_logs" / "tampering_orth100_256.png"
     plt.savefig(output_path, dpi=150)
     print(f"Plot saved to {output_path}")
     print(f"Steps: {steps}")

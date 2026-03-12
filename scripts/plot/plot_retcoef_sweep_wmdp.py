@@ -91,8 +91,9 @@ def find_best_for_retcoef(runs_dir, ret):
 
 
 def main():
-    runs_dir = Path("/home/a6a/lucia.a6a/unlearn/runs")
-    out_dir = Path("/home/a6a/lucia.a6a/unlearn/experiment_logs")
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    runs_dir = repo_root / "runs"
+    out_dir = repo_root / "experiment_logs"
 
     results = {}
     for ret in RETAIN_COEFS:
@@ -101,7 +102,7 @@ def main():
             results[ret["tag"]] = (data, cfg, peak, ret["label"])
             print(f"{ret['label']:>12s}: best={cfg:<6s} peak={peak*100:.1f}%")
 
-    cmap = plt.colormaps["coolwarm"] # type: ignore
+    cmap = plt.colormaps["coolwarm"]  # type: ignore
     fig, ax = plt.subplots(figsize=(12, 7))
 
     max_step = 0

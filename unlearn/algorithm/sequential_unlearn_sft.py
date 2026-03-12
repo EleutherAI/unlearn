@@ -15,7 +15,10 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from simple_parsing import ArgumentParser
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.checkpoint.state_dict import (
+    StateDictOptions,
+    get_model_state_dict,
+)
 from torch.distributed.fsdp import fully_shard
 from torch.utils.data import DataLoader
 from transformers import (
@@ -97,7 +100,9 @@ class SequentialSftTrainer(Trainer):
             DataLoader(self.train_dataset, **dataloader_params)
         )  # type: ignore
 
-    def _prepare_for_training(self, max_steps, train_dataloader, resume_from_checkpoint):
+    def _prepare_for_training(
+        self, max_steps, train_dataloader, resume_from_checkpoint
+    ):
         """Skip accelerate's model wrapping (FSDP2 applied externally)."""
         self.create_optimizer()
         self.optimizer = self.accelerator.prepare(self.optimizer)
@@ -404,7 +409,9 @@ class SequentialSftTrainer(Trainer):
         # Retain backward (+ L2-SP if enabled): save target layer grads, then zero
         with amp_ctx:
             if self.run_args.retain_loss_type == "nll":
-                retain_loss = self._compute_nll_retain_loss(model, inputs, target_device)
+                retain_loss = self._compute_nll_retain_loss(
+                    model, inputs, target_device
+                )
             elif self.run_args.retain_loss_type == "l2":
                 retain_loss = self._compute_l2_retain_loss(
                     model, inputs, sorted(keep_layers), target_device
@@ -608,9 +615,7 @@ if __name__ == "__main__":
     if run_cfg.wandb_project and local_rank == 0:
         wandb.init(project=run_cfg.wandb_project, config=vars(run_cfg))
 
-    model, tokenizer = get_model_and_tokenizer(
-        run_cfg.model_name, dtype=run_cfg.dtype
-    )
+    model, tokenizer = get_model_and_tokenizer(run_cfg.model_name, dtype=run_cfg.dtype)
     model = cast(PreTrainedModel, model)
 
     for param in model.parameters():
