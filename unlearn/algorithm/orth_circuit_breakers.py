@@ -1,16 +1,20 @@
 # A base script for prototyping unlearning methods.
 # Uses Cas's circuit breakers implementation with DDP enabled.
 
+import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import torch
+import torch.distributed as dist
 from peft import LoraConfig, get_peft_model
 from simple_parsing import ArgumentParser
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.fsdp import fully_shard
 from torch.utils.data import DataLoader
-from transformers import PreTrainedModel, Trainer, TrainingArguments
+from transformers import AutoModelForCausalLM, PreTrainedModel, Trainer, TrainingArguments
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import seed_worker
 
@@ -29,9 +33,10 @@ class UnlearningTrainer(Trainer):
         args,
         train_dataset,
         tokenizer,
-        lora_target_layers,
+        target_layers,
         use_lora: bool = True,
         use_muon: bool = False,
+        reference_model=None,
         **kwargs,
     ):
         super().__init__(
@@ -44,7 +49,7 @@ class UnlearningTrainer(Trainer):
         self.num_training_steps = self.args.max_steps
         self.current_training_step = 0
         self.tokenizer = tokenizer
-        self.lora_target_layers = lora_target_layers
+        self.target_layers = target_layers
         self.model = model
         self.retain_coef = self.run_args.retain_coef
         self.remove_coef = self.run_args.remove_coef
@@ -52,9 +57,21 @@ class UnlearningTrainer(Trainer):
         self.trainer_tokenizer = tokenizer
         self.use_lora = use_lora
         self.use_muon = use_muon
+        self.reference_model = reference_model
+        if self.reference_model is not None:
+            self.reference_model.eval()
+            for param in self.reference_model.parameters():
+                param.requires_grad = False
 
-        self.layer_id_to_name = resolve_layer_names(model, lora_target_layers)
+        self.layer_id_to_name = resolve_layer_names(model, target_layers)
         self.target_module_names = list(self.layer_id_to_name.values())
+        if self.reference_model is not None:
+            self.reference_layer_id_to_name = resolve_layer_names(
+                self.reference_model, target_layers
+            )
+            self.reference_target_module_names = list(
+                self.reference_layer_id_to_name.values()
+            )
 
     def create_optimizer(self, model=None):
         if self.use_muon:
@@ -65,6 +82,18 @@ class UnlearningTrainer(Trainer):
             )
             return self.optimizer
         return super().create_optimizer()
+
+    def _prepare_for_training(self, max_steps, train_dataloader, resume_from_checkpoint):
+        """Skip accelerate model wrapping when FSDP2 has already been applied."""
+        if self.run_args.use_fsdp2 and not self.use_lora:
+            self.create_optimizer()
+            self.optimizer = self.accelerator.prepare(self.optimizer)
+            self.create_scheduler(num_training_steps=max_steps)
+            self.model_wrapped = self.model
+            return self.model, train_dataloader
+        return super()._prepare_for_training(
+            max_steps, train_dataloader, resume_from_checkpoint
+        )
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -94,7 +123,7 @@ class RRTrainer(UnlearningTrainer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not self.use_lora:
+        if not self.use_lora and self.reference_model is None:
             self._orig_param_data = {
                 name: param.data.clone()
                 for name, param in self.model.named_parameters()
@@ -177,37 +206,61 @@ class RRTrainer(UnlearningTrainer):
         capturer = ActivationCapture(unwrapped_model, self.target_module_names)
 
         # --- Forward Pass 1: Reference (No Adapter) ---
-        ref_ctx = (
-            unwrapped_model.disable_adapter()
-            if self.use_lora
-            else self._original_params(unwrapped_model)
-        )  # type: ignore
-        with ref_ctx:
-            unwrapped_model.eval()
-            capturer.register()  # Attach hooks
-
+        if self.reference_model is not None:
+            ref_capturer = ActivationCapture(
+                self.reference_model, self.reference_target_module_names
+            )
+            ref_capturer.register()
             with torch.no_grad():
-                ### Retain control
                 if retain_coeff > 0:
-                    unwrapped_model(**retain_inputs_dict)
+                    self.reference_model(**retain_inputs_dict)
                     orig_retain_acts = {}
-                    for l in self.lora_target_layers:
-                        name = self.layer_id_to_name[l]
+                    for l in self.target_layers:
+                        ref_name = self.reference_layer_id_to_name[l]
                         orig_retain_acts[l] = (
-                            capturer.activations[name].detach() * retain_mask
+                            ref_capturer.activations[ref_name].detach() * retain_mask
                         )
+                ref_capturer.clear()
 
-                capturer.clear()
-
-                ### Circuit Breaker control
                 if circuit_breaker_coeff > 0:
-                    unwrapped_model(**cb_inputs_dict)
+                    self.reference_model(**cb_inputs_dict)
                     orig_cb_acts = {}
-                    for l in self.lora_target_layers:
-                        name = self.layer_id_to_name[l]
-                        orig_cb_acts[l] = capturer.activations[name].detach()
+                    for l in self.target_layers:
+                        ref_name = self.reference_layer_id_to_name[l]
+                        orig_cb_acts[l] = ref_capturer.activations[ref_name].detach()
+            ref_capturer.remove()
+        else:
+            ref_ctx = (
+                unwrapped_model.disable_adapter()
+                if self.use_lora
+                else self._original_params(unwrapped_model)
+            )  # type: ignore
+            with ref_ctx:
+                unwrapped_model.eval()
+                capturer.register()  # Attach hooks
 
-            capturer.remove()  # Remove hooks
+                with torch.no_grad():
+                    ### Retain control
+                    if retain_coeff > 0:
+                        model(**retain_inputs_dict)
+                        orig_retain_acts = {}
+                        for l in self.target_layers:
+                            name = self.layer_id_to_name[l]
+                            orig_retain_acts[l] = (
+                                capturer.activations[name].detach() * retain_mask
+                            )
+
+                    capturer.clear()
+
+                    ### Circuit Breaker control
+                    if circuit_breaker_coeff > 0:
+                        model(**cb_inputs_dict)
+                        orig_cb_acts = {}
+                        for l in self.target_layers:
+                            name = self.layer_id_to_name[l]
+                            orig_cb_acts[l] = capturer.activations[name].detach()
+
+                capturer.remove()  # Remove hooks
 
         unwrapped_model.train()
 
@@ -218,11 +271,11 @@ class RRTrainer(UnlearningTrainer):
 
         ### Retain control
         if retain_coeff > 0:
-            unwrapped_model(**retain_inputs_dict)
+            model(**retain_inputs_dict)
 
-            n_layers = len(self.lora_target_layers)
+            n_layers = len(self.target_layers)
             retain_loss = torch.tensor(0.0, device=target_device)
-            for l in self.lora_target_layers:
+            for l in self.target_layers:
                 name = self.layer_id_to_name[l]
                 lora_h = capturer.activations[name] * retain_mask
                 retain_loss = (
@@ -235,13 +288,13 @@ class RRTrainer(UnlearningTrainer):
 
             capturer.clear()
         else:
-            retain_loss = 0
+            retain_loss = torch.tensor(0.0, device=target_device)
 
         ### Circuit Breaker control
         if circuit_breaker_coeff > 0:
-            unwrapped_model(**cb_inputs_dict)
+            model(**cb_inputs_dict)
 
-            denom = circuit_breaker_attention_mask.sum() * len(self.lora_target_layers)
+            denom = circuit_breaker_attention_mask.sum() * len(self.target_layers)
             cb_loss_total = torch.tensor(0.0, device=target_device)
 
             cb_mask = circuit_breaker_attention_mask.unsqueeze(-1)  # [B, S, 1]
@@ -255,7 +308,7 @@ class RRTrainer(UnlearningTrainer):
                 )
                 orth_loss_total = torch.tensor(0.0, device=target_device)
 
-            for l in self.lora_target_layers:
+            for l in self.target_layers:
                 name = self.layer_id_to_name[l]
                 lora_h = capturer.activations[name]
                 ref_h = orig_cb_acts[l]
@@ -284,13 +337,13 @@ class RRTrainer(UnlearningTrainer):
             circuit_breaker_loss = cb_loss_total / (denom + 1e-6)
 
             if self.orth_coef > 0:
-                num_pairs = batch_size * (batch_size - 1) * len(self.lora_target_layers)
+                num_pairs = batch_size * (batch_size - 1) * len(self.target_layers)
                 mean_seq_len = cb_mask_sum.mean()
                 orth_loss = orth_loss_total / (num_pairs + 1e-6) * mean_seq_len
             else:
                 orth_loss = torch.tensor(0.0, device=target_device)
         else:
-            circuit_breaker_loss = 0
+            circuit_breaker_loss = torch.tensor(0.0, device=target_device)
             orth_loss = torch.tensor(0.0, device=target_device)
 
         capturer.remove()  # Clean up
@@ -300,8 +353,6 @@ class RRTrainer(UnlearningTrainer):
             + circuit_breaker_coeff * circuit_breaker_loss
             + orth_coeff * orth_loss
         )
-        dummy_loss = 0.0 * sum(p.sum() for p in model.parameters() if p.requires_grad)
-        loss = loss + dummy_loss
 
         if (
             self.current_training_step % 32 == 0
@@ -349,7 +400,7 @@ class OrthCircuitBreakerConfig:
     probe_mask_frac: float = 0.105
     revision: str = "main"
     hidden_dim: int = 4096
-    lora_target: Literal["attn", "mlp", "all"] = "attn"
+    lora_target: Literal["attn", "mlp", "all"] = "all"
     lora_all_layers: bool = False
     exclude_lora_layers: list[int] = field(default_factory=list)
     optimizer: Literal["adamw", "muon"] = "adamw"
@@ -358,12 +409,14 @@ class OrthCircuitBreakerConfig:
     dtype: Literal["bf16", "fp16"] = "bf16"
     retain_warmup: bool = False
     use_ultrachat: bool = False
+    use_fsdp2: bool = True
 
 
 if __name__ == "__main__":
     assert torch.cuda.is_available(), "CUDA is not available"
 
     NUM_PROC = (os.cpu_count() or 32) // 2
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
 
     parser = ArgumentParser()
     parser.add_arguments(OrthCircuitBreakerConfig, dest="run_cfg")
@@ -432,6 +485,33 @@ if __name__ == "__main__":
     global_batch_size = 32
     grad_acc_steps = max(1, global_batch_size // (run_cfg.pdbs * world_size))
 
+    use_fsdp2 = run_cfg.use_fsdp2 and not run_cfg.lora and world_size > 1
+    if use_fsdp2:
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+        torch.cuda.set_device(local_rank)
+        for layer in model.gpt_neox.layers:
+            fully_shard(layer)
+        fully_shard(model)
+        print(f"FSDP2 applied: {sum(1 for _ in model.parameters())} params as DTensors")
+
+    reference_model = None
+    if use_fsdp2:
+        reference_torch_dtype = (
+            torch.float16 if run_cfg.dtype == "fp16" else torch.bfloat16
+        )
+        reference_model = AutoModelForCausalLM.from_pretrained(
+            run_cfg.model_name,
+            revision=run_cfg.revision,
+            torch_dtype=reference_torch_dtype,
+            device_map={"": local_rank},
+            use_cache=False,
+        )
+        reference_model.eval()
+        for param in reference_model.parameters():
+            param.requires_grad = False
+        print("Loaded frozen reference model.")
+
     print(
         f"Running with {world_size} GPUs. Per device batch: {run_cfg.pdbs}. "
         f"Grad Acc steps: {grad_acc_steps}."
@@ -439,6 +519,9 @@ if __name__ == "__main__":
 
     output_dir = run_cfg.save_path or "./results"
     use_muon = run_cfg.optimizer == "muon"
+    if world_size > 1 and not run_cfg.lora and not use_fsdp2:
+        raise ValueError("Distributed full-rank cb runs must use FSDP2.")
+
     training_args = TrainingArguments(
         output_dir=output_dir,
         learning_rate=run_cfg.lr,
@@ -448,7 +531,7 @@ if __name__ == "__main__":
         max_steps=run_cfg.max_steps if run_cfg.max_steps > 0 else -1,
         num_train_epochs=run_cfg.num_train_epochs,
         weight_decay=0.01,
-        gradient_checkpointing=True,
+        gradient_checkpointing=run_cfg.lora and not use_fsdp2,
         fp16=run_cfg.dtype == "fp16",
         bf16=run_cfg.dtype == "bf16",
         save_strategy="no",
@@ -465,6 +548,7 @@ if __name__ == "__main__":
         run_cfg.layers,
         use_lora=run_cfg.lora,
         use_muon=use_muon,
+        reference_model=reference_model,
     )
 
     model.train()
@@ -476,6 +560,30 @@ if __name__ == "__main__":
         trainer.model = model
 
     if run_cfg.save_path:
-        save_checkpoint(trainer, run_cfg.save_path, tokenizer)
+        if use_fsdp2:
+            state_dict = get_model_state_dict(
+                model,
+                options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+            )
+            if local_rank == 0:
+                os.makedirs(run_cfg.save_path, exist_ok=True)
+                model.save_pretrained(
+                    run_cfg.save_path,
+                    state_dict=state_dict,
+                    safe_serialization=True,
+                )
+                tokenizer.save_pretrained(run_cfg.save_path)
+                config_path = os.path.join(run_cfg.save_path, "config.json")
+                if os.path.exists(config_path):
+                    with open(config_path) as f:
+                        config_dict = json.load(f)
+                    if config_dict.get("dtype") is None:
+                        config_dict["dtype"] = config_dict.get("torch_dtype", "float32")
+                        with open(config_path, "w") as f:
+                            json.dump(config_dict, f, indent=2)
+            if dist.is_initialized():
+                dist.barrier()
+        else:
+            save_checkpoint(trainer, run_cfg.save_path, tokenizer)
 
     print("Done :)")

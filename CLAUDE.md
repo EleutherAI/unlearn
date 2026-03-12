@@ -382,11 +382,11 @@ Sweep over a number of configurations, trying both fp16 and bf16, cosine and lin
 
 ## Test Parallelism Strategy
 
-When you change an unlearn algorithm's distributed implementation, test it with multiple training setups:
+When you change an unlearn algorithm's distributed implementation, test it with SFT, LoRA, Muon, Adam, bf16, and fp16.
+You can combine these like so:
 
 Examples:
 ```bash
-bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft
 bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --r 16
 bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft --muon
 bash scripts/run_unlearn.sh -a seq --rm 1 --ret 1 --sft --dtype fp16
