@@ -10,7 +10,7 @@
 #   bash scripts/run_unlearn.sh --algorithm maxupdate --rm 10 --ret 1 --sft
 #
 # Options:
-#   --algorithm, -a   Algorithm: cb, checkpoint, lens, sequential, maxupdate (required)
+#   --algorithm, -a   Algorithm: cb, checkpoint, lens, sequential, maxupdate, module_parallel (required)
 #   --rm              remove_coef (required)
 #   --ret             retain_coef (required)
 #   --rank, -r        LoRA rank (default: 16, ignored with --sft)
@@ -73,7 +73,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -z "$ALG" ]] && { echo "Error: --algorithm is required (cb, checkpoint, lens, sequential, maxupdate)"; exit 1; }
+[[ -z "$ALG" ]] && { echo "Error: --algorithm is required (cb, checkpoint, lens, sequential, maxupdate, module_parallel)"; exit 1; }
 [[ -z "$RM" ]]  && { echo "Error: --rm is required"; exit 1; }
 [[ -z "$RET" ]] && { echo "Error: --ret is required"; exit 1; }
 
@@ -185,7 +185,7 @@ case "$ALG" in
         if $SFT; then
             TAG="seq_sft_ret${RET}_rm${RM}_lr${LR}_nn${NODES}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.sequential_unlearn_sft \
+            TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.sequential_retain_sft \
     --remove_coef=$RM --retain_coef=$RET \
     --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
     --start_layer=31 --end_layer=0 --layer_step=1 \
@@ -196,7 +196,7 @@ case "$ALG" in
         else
             TAG="seq_lora_ret${RET}_rm${RM}_r${RANK}_lr${LR}_nn${NODES}"
             MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
-            TRAIN_CMD="python -m unlearn.algorithm.sequential_unlearn \
+            TRAIN_CMD="python -m unlearn.algorithm.sequential_retain \
     --remove_coef=$RM --retain_coef=$RET \
     --lora_r=$RANK --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
     --start_layer=31 --end_layer=0 --layer_step=1 \
@@ -204,6 +204,21 @@ case "$ALG" in
     --save_path=$MODEL_PATH $EXTRA"
             EVAL_MODEL="$MODEL_PATH"
         fi
+        ;;
+
+    module_parallel|mp)
+        [[ -z "$LR" ]] && LR="1e-4"
+        [[ -z "$EXAMPLES" ]] && EXAMPLES=1024
+        [[ -z "$PDBS" ]] && PDBS=1
+        TAG="mp_sft_ret${RET}_rm${RM}_lr${LR}"
+        MODEL_PATH="$REPO_ROOT/models/EleutherAI/deep-ignorance-unfiltered_${TAG}"
+        TRAIN_CMD="torchrun --nproc_per_node=4 -m unlearn.algorithm.module_parallel_unlearn \
+    --remove_coef=$RM --retain_coef=$RET \
+    --lr=$LR --pdbs=$PDBS --num_train_examples=$EXAMPLES \
+    --model_name=EleutherAI/deep-ignorance-unfiltered \
+    --save_path=$MODEL_PATH $EXTRA"
+        EVAL_MODEL="$MODEL_PATH"
+        TRAIN_GPUS="0,1,2,3"
         ;;
 
     maxupdate|mu)
@@ -234,7 +249,7 @@ case "$ALG" in
         ;;
 
     *)
-        echo "Unknown algorithm: $ALG (use cb, checkpoint, lens, sequential, maxupdate)"
+        echo "Unknown algorithm: $ALG (use cb, checkpoint, lens, sequential, maxupdate, module_parallel)"
         exit 1
         ;;
 esac

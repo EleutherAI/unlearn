@@ -333,7 +333,7 @@ bash scripts/run_tamper.sh --model <model_path> [options]
 
 Effective batch size 16 (bs=1 * grad_acc=4 * 4 GPUs), 2 epochs of 10k steps, MMLU + WMDP eval every 10 steps. Overriding any of `--lr`, `--dtype`, or `--sched` switches from the 5-config sweep to custom mode (sweeping the given LRs with the given dtype/sched).
 
-Data sources: `bio_remove`, `benign`, `bio_chat`, `bio_forget_flagged`, `bio_forget`, `flagged`, `wikitext`, `annealing`.
+Data sources: `bio_remove`, `benign`, `bio_chat`, `bio_forget_flagged`, `bio_forget`, `flagged`, `wikitext`, `annealing`. Empirically, `bio_forget` works better than `bio_remove` for adversarial tamper attacks.
 
 Results and plots save to `runs/tamper_<TAG>/`. SLURM output goes to `runs/tamper_<TAG>-<JOBID>.out`.
 
