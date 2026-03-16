@@ -66,32 +66,31 @@ def get_target_modules(model: PreTrainedModel):
 def patch_weights(
     target_model: PreTrainedModel, target_module_name: str, source_module: nn.Linear
 ):
-    """Unshards the FSDP2 DTensors into local tensors
-    that are yielded for gradient collection."""
-    print(list(dict(target_model.base_model.named_modules()).keys()))
     target_module = dict(target_model.base_model.named_modules())[target_module_name]
     assert isinstance(target_module, nn.Linear)
 
     original_weight = target_module.weight
     original_bias = target_module.bias
 
-    # Weights
     source_weight = assert_type(DTensor, source_module.weight)
     weight_local = source_weight.full_tensor().detach().requires_grad_(True)
-    target_module.weight = nn.Parameter(weight_local)
+    # We patch via the dict to prevent the model from realizing that we are
+    # sneaking another computational graph into it
+    target_module.__dict__["weight"] = weight_local
 
-    # Bias
     if source_module.bias is not None:
         source_bias = assert_type(DTensor, source_module.bias)
         bias_local = source_bias.full_tensor().detach().requires_grad_(True)
-        target_module.bias = nn.Parameter(bias_local)
+        target_module.__dict__["bias"] = bias_local
     else:
         bias_local = None
 
     try:
-        # Yield the local parameters so we can extract the gradients
         yield weight_local, bias_local
     finally:
+        # Restore via __dict__ as well, then fix the Parameter registration
+        target_module.__dict__.pop("weight", None)
+        target_module.__dict__.pop("bias", None)
         target_module.weight = original_weight
         target_module.bias = original_bias
 
@@ -406,9 +405,20 @@ class ModuleParallelTrainer(Trainer):
             if not isinstance(module, nn.Linear):
                 continue
 
-            frozen_model.zero_grad()
+            self.frozen_model.zero_grad()
 
             with patch_weights(self.frozen_model, name, module) as (weight, bias):
+                target_module = dict(self.frozen_model.base_model.named_modules())[name]
+                test_input = torch.randn(
+                    1,
+                    1,
+                    target_module.weight.shape[1],
+                    device=weight.device,
+                    requires_grad=True,
+                )
+                test_output = target_module(test_input)
+                test_output.sum().backward()
+
                 with amp_ctx:
                     forget_loss = self._compute_forget_loss(
                         self.frozen_model, inputs, target_device
