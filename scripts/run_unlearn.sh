@@ -47,6 +47,7 @@ TAG_SUFFIX=""
 EXTRA=""
 DRY_RUN=false
 USE_ULTRACHAT=false
+WANDB_PROJECT=""
 
 # ── parse args ──
 while [[ $# -gt 0 ]]; do
@@ -69,6 +70,7 @@ while [[ $# -gt 0 ]]; do
         --extra)        EXTRA="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=true; shift ;;
         --use_ultrachat) USE_ULTRACHAT=true; shift ;;
+        --wandb)        WANDB_PROJECT="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -282,6 +284,11 @@ if [[ -n "$TAG_SUFFIX" ]]; then
     TAG="${TAG}_${TAG_SUFFIX}"
 fi
 
+# ── wandb handling (after TAG is finalized) ──
+if [[ -n "$WANDB_PROJECT" ]]; then
+    TRAIN_CMD="$TRAIN_CMD --wandb_project=$WANDB_PROJECT --wandb_run_name=$TAG"
+fi
+
 # ── sweep over LRs (comma-separated) ──
 IFS=',' read -ra LR_ARRAY <<< "$LR"
 
@@ -354,7 +361,11 @@ export CC=/usr/bin/gcc-12
 export CXX=/usr/bin/g++-12
 export PIP_CACHE_DIR="/projects/a6a/public/lucia/pip_cache"
 export TMPDIR="/projects/a6a/public/lucia/tmp"
-export WANDB_MODE=disabled
+if [[ -n "$WANDB_PROJECT" ]]; then
+    export WANDB_MODE=online
+else
+    export WANDB_MODE=disabled
+fi
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 mkdir -p \$PIP_CACHE_DIR \$TMPDIR
 

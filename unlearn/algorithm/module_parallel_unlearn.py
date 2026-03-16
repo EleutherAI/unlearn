@@ -1,6 +1,6 @@
 """Module-parallel SFT unlearning. FSDP2. Only supports transformers that use nn.Linear.
 
-Launch with ``torchrun --nproc_per_node=N`` — do not pass an outer FSDP config.
+Launch with ``torchrun --nproc_per_node=N``. Do not pass an outer FSDP config.
 """
 
 import json
@@ -182,20 +182,27 @@ class ModuleParallelTrainer(Trainer):
         """The KL divergence of the updated model's predictions on retain data
         from the original model's predictions."""
         retain_input_ids = inputs["input_ids"].to(target_device)
+        retain_attention_mask = inputs["attention_mask"].to(target_device)
         with torch.no_grad():
             ref_outputs = self.frozen_model(retain_input_ids, attention_mask=None)
             ref_logits = ref_outputs.logits.to(target_device)
 
         current_logits = model(
             input_ids=retain_input_ids,
-            attention_mask=None,
+            attention_mask=retain_attention_mask,
         ).logits
 
-        return F.kl_div(
+        # Use log_target=True for numerical safety
+        # Divide by seq_len (current_logits.size(1))
+        # because 'batchmean' only averages over batch_size
+        loss = F.kl_div(
             input=F.log_softmax(current_logits, dim=-1),
-            target=F.softmax(ref_logits, dim=-1),
+            target=F.log_softmax(ref_logits, dim=-1),
             reduction="batchmean",
+            log_target=True,
         )
+
+        return loss / current_logits.size(1)
 
     def _compute_nll_retain_loss(self, model, inputs, target_device):
         """Standard cross-entropy on retain tokens with teacher forcing."""
@@ -339,8 +346,8 @@ class ModuleParallelTrainer(Trainer):
     def compute_grad_norm(self, model, target_modules):
         """Compute L2 gradient norm for target_modules."""
         total_norm_sq = torch.tensor(0.0, device="cuda")
-        for name, param in model.named_parameters():
-            if param.grad is not None and name in target_modules:
+        for param in model.parameters():
+            if param.grad is not None:
                 g = param.grad.detach()
                 if hasattr(g, "to_local"):
                     g = g.to_local()
@@ -353,6 +360,13 @@ class ModuleParallelTrainer(Trainer):
 
     def training_step(self, model, inputs, num_items_in_batch=None):
         model.train()
+        accumulated_grads = {
+            name: param.grad.clone()
+            for name, param in model.base_model.named_parameters()  # type: ignore
+            if param.grad is not None
+        }
+        model.zero_grad(set_to_none=False)  # Isolate this micro-batch
+
         inputs = self._prepare_inputs(inputs)
         target_device = inputs["input_ids"].device
 
@@ -408,49 +422,70 @@ class ModuleParallelTrainer(Trainer):
             self.frozen_model.zero_grad()
 
             with patch_weights(self.frozen_model, name, module) as (weight, bias):
-                target_module = dict(self.frozen_model.base_model.named_modules())[name]
-                test_input = torch.randn(
-                    1,
-                    1,
-                    target_module.weight.shape[1],
-                    device=weight.device,
-                    requires_grad=True,
-                )
-                test_output = target_module(test_input)
-                test_output.sum().backward()
+                if weight.grad is not None:
+                    assert (
+                        weight.grad.count_nonzero().item() == 0
+                    ), "Nonzero weight grad"
 
                 with amp_ctx:
                     forget_loss = self._compute_forget_loss(
                         self.frozen_model, inputs, target_device
                     )
 
+                forget_loss_term = forget_coeff * forget_loss
+
                 # Backpropagate through the frozen model to populate
                 # the current module's gradients
-                (forget_coeff * forget_loss).backward()
-                forget_grad_norms.append(self.compute_grad_norm(model, [name]))
 
+                # Scale the loss in FP16
+                if self.accelerator.scaler is not None:
+                    # Scale the loss to match the retain gradient scale
+                    self.accelerator.scaler.scale(forget_loss_term).backward()
+                    scale_factor = self.accelerator.scaler.get_scale()
+                else:
+                    # BF16 or FP32 bypasses scaling
+                    forget_loss_term.backward()
+                    scale_factor = 1.0
+
+                # Extract the newly computed (and properly scaled) gradients
                 forget_grads[f"{name}.weight"] = weight.grad.clone()
-                forget_grads[f"{name}.bias"] = (
-                    bias.grad.clone() if bias is not None else None
+                if bias is not None and bias.grad is not None:
+                    forget_grads[f"{name}.bias"] = bias.grad.clone()
+
+                # Divide by scale_factor so your wandb logs
+                # show the true (unscaled) norm
+                forget_grad_norms.append(
+                    (
+                        forget_grads[f"{name}.weight"].detach().norm() / scale_factor
+                    ).item()
                 )
+                if bias is not None and bias.grad is not None:
+                    forget_grad_norms.append(
+                        (
+                            forget_grads[f"{name}.bias"].detach().norm() / scale_factor
+                        ).item()
+                    )
 
                 forget_losses.append(forget_loss.detach())
+
+        # The forget loop accumulated gradients into the active model.
+        model.zero_grad(set_to_none=False)
 
         # Combine saved gradients
         for name, param in model.base_model.named_parameters():  # type: ignore
             if name in self.target_modules and name in retain_grads:
-                param.grad = retain_grads[name]
+                param.grad.copy_(retain_grads[name])
 
-                # Local add
-                # param.grad.add_(forget_grads[name].to(param.grad.dtype))
-
-                # Distributed add
+                # Distribute gradient for add
                 local_forget_grad = forget_grads[name]
                 # Reshard to match the DTensor's placement
                 sharded_grad = distribute_tensor(
                     local_forget_grad, param.device_mesh, param.placements
                 )
                 param.grad.add_(sharded_grad.to(param.grad.dtype))
+
+                if name in accumulated_grads:
+                    param.grad.add_(accumulated_grads[name])
 
         # Logging
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
@@ -463,12 +498,12 @@ class ModuleParallelTrainer(Trainer):
                 keyword_tokens = (km.bool() & attn.bool()).sum().item()
                 keyword_mask_frac = keyword_tokens / max(attn_tokens, 1)
 
-            if self.current_training_step % 8 == 0:
+            if self.current_training_step % 4 == 0:
                 msg = (
                     f"step {self.current_training_step} | "
                     f"retain_loss: {retain_loss.item():.4f} | "
-                    f"forget_loss: {np.mean(forget_losses).item():.4f} | "
-                    f"retain_grad_norm: {retain_grad_norm:.4f} | "
+                    f"forget_loss: {torch.stack(forget_losses).cpu().mean().item():.4f}"
+                    f" | retain_grad_norm: {retain_grad_norm:.4f} | "
                     f"forget_grad_norm: {np.mean(forget_grad_norms):.4f}"
                 )
                 if keyword_mask_frac is not None:
@@ -481,7 +516,7 @@ class ModuleParallelTrainer(Trainer):
             if wandb.run is not None:
                 log_dict = {
                     "retain_loss": retain_loss.item(),
-                    "forget_loss": np.mean(forget_losses).item(),
+                    "forget_loss": torch.stack(forget_losses).cpu().mean().item(),
                     "retain_grad_norm": retain_grad_norm,
                     "forget_grad_norm": np.mean(forget_grad_norms),
                     "retain_coeff": retain_coeff,
@@ -496,7 +531,8 @@ class ModuleParallelTrainer(Trainer):
 
         self.current_training_step += 1
         return (
-            retain_coeff * retain_loss + forget_coeff * np.mean(forget_losses).item()
+            retain_coeff * retain_loss
+            + forget_coeff * torch.stack(forget_losses).cpu().mean().item()
         ).detach()
 
 
@@ -524,6 +560,7 @@ class ModuleParallelUnlearnConfig:
     optimizer: Literal["muon", "adamw"] = "adamw"
     muon_momentum: float = 0.95
     wandb_project: str = ""
+    wandb_run_name: str = ""
     blocklist_path: str = ""
     keyword_mask_method: Literal["regex", "activation", "sae", "probe"] = "regex"
     activation_mask_threshold: float = 0.2
@@ -561,7 +598,16 @@ if __name__ == "__main__":
         print(f"  {arg}: {value}")
 
     if run_cfg.wandb_project and local_rank == 0:
-        wandb.init(project=run_cfg.wandb_project, config=vars(run_cfg))
+        from dotenv import load_dotenv
+
+        load_dotenv()
+        if os.environ.get("WANDB_API_KEY"):
+            wandb.login(key=os.environ["WANDB_API_KEY"])
+        wandb.init(
+            project=run_cfg.wandb_project,
+            name=run_cfg.wandb_run_name or None,
+            config=vars(run_cfg),
+        )
 
     model, tokenizer = get_model_and_tokenizer(run_cfg.model_name)
     model = cast(PreTrainedModel, model)

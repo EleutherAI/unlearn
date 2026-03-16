@@ -390,4 +390,5 @@ Examples:
 bash scripts/run_unlearn.sh -a seq --rm 5 --ret 1 --r 16
 bash scripts/run_unlearn.sh -a seq --rm 5 --ret 1 --sft --muon
 bash scripts/run_unlearn.sh -a seq --rm 5 --ret 1 --sft --dtype fp16
+bash scripts/run_unlearn.sh -a mp --rm 5 --ret 5 --wandb module-parallel-unlearn
 ```
