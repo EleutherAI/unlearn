@@ -186,12 +186,26 @@ class TamperAttackConfig:
         "wikitext",
         "annealing",
     ] = "bio_remove"
+    resume_from_checkpoint: Optional[str] = None
+    save_at_step: int = 0
     flagged_docs_path: str = (
         "/projects/a6a/public/lucia/deep-ignorance-flagged-annealing-mix"
     )
     annealing_docs_path: str = (
         "/projects/a6a/public/lucia/deep-ignorance-filtered-annealing-mix"
     )
+
+
+class ResumeCheckpointCallback(TrainerCallback):
+    """Save a resumable trainer checkpoint at a specified step."""
+
+    def __init__(self, save_step: int):
+        self.save_step = save_step
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step == self.save_step:
+            control.should_save = True
+            print(f"Saving resumable checkpoint at step {self.save_step}")
 
 
 class MuonTrainer(Trainer):
@@ -996,14 +1010,18 @@ def run_tamper_attack(config: TamperAttackConfig):
     print(
         f"Steps per epoch: {steps_per_epoch}, effective epochs: {effective_epochs:.2f}"
     )
-    if config.epochs <= 1:
-        assert effective_epochs <= 1.01, (
-            f"Not enough data for {config.max_steps} steps without multiple epochs "
-            f"(effective epochs = {effective_epochs:.2f}). "
-            f"Dataset: {len(dataset)}, max_steps: {config.max_steps}, "
-            f"effective batch: {effective_batch}. "
-            f"Increase --num_train_examples or pass --epochs=N to allow repeats."
-        )
+    assert effective_epochs <= 2.01, (
+        f"Effective epochs ({effective_epochs:.2f}) exceeds 2. "
+        f"Increase dataset size or reduce max_steps."
+    )
+    assert effective_epochs <= config.epochs + 0.01, (
+        f"Not enough data for {config.max_steps} steps within {config.epochs} epochs "
+        f"(effective epochs = {effective_epochs:.2f}). "
+        f"Dataset: {len(dataset)}, max_steps: {config.max_steps}, "
+        f"effective batch: {effective_batch}. "
+        f"Need at least {config.max_steps * effective_batch // config.epochs} examples, "
+        f"or increase --epochs."
+    )
 
     checkpoints_base_dir = output_dir / "eval_checkpoints"
     callback = WMDPEvalCallback(
@@ -1052,12 +1070,16 @@ def run_tamper_attack(config: TamperAttackConfig):
         optim="adamw_torch" if use_fsdp else "adamw_torch_fused",
     )
 
+    callbacks = [callback]
+    if config.save_at_step > 0:
+        callbacks.append(ResumeCheckpointCallback(config.save_at_step))
+
     if config.optimizer == "muon":
         trainer = MuonTrainer(
             model=model,
             args=training_args,
             train_dataset=dataset,
-            callbacks=[callback],
+            callbacks=callbacks,
             muon_lr=config.lr,
         )
     else:
@@ -1065,7 +1087,7 @@ def run_tamper_attack(config: TamperAttackConfig):
             model=model,
             args=training_args,
             train_dataset=dataset,
-            callbacks=[callback],
+            callbacks=callbacks,
         )
 
     callback.trainer = trainer
@@ -1075,7 +1097,7 @@ def run_tamper_attack(config: TamperAttackConfig):
             param.requires_grad = True
 
     model.train()
-    trainer.train()
+    trainer.train(resume_from_checkpoint=config.resume_from_checkpoint)
 
     # Final eval + result collection
     if async_eval:
@@ -1298,6 +1320,18 @@ def parse_args():
         default="/projects/a6a/public/lucia/deep-ignorance-filtered-annealing-mix",
         help="Path to filtered annealing docs dataset on disk",
     )
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        default=None,
+        help="Path to a trainer checkpoint directory to resume from (e.g. runs/.../checkpoints/checkpoint-1500)",
+    )
+    parser.add_argument(
+        "--save_at_step",
+        type=int,
+        default=0,
+        help="Save a resumable trainer checkpoint at this step (0 = disabled)",
+    )
     return parser.parse_args()
 
 
@@ -1333,6 +1367,8 @@ if __name__ == "__main__":
             max_steps=args.max_steps,
             seed=args.seed,
             tamper_data=args.tamper_data,
+            resume_from_checkpoint=args.resume_from_checkpoint,
+            save_at_step=args.save_at_step,
             flagged_docs_path=args.flagged_docs_path,
             annealing_docs_path=args.annealing_docs_path,
         )

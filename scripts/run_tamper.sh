@@ -56,6 +56,8 @@ SEED=42
 TIME="6:00:00"
 SHORT=false
 DRY_RUN=false
+SAVE_AT_STEP=0
+RESUME_FROM=""
 
 # ── parse args ──
 while [[ $# -gt 0 ]]; do
@@ -81,6 +83,8 @@ while [[ $# -gt 0 ]]; do
         --seed)           SEED="$2"; shift 2 ;;
         --time)           TIME="$2"; shift 2 ;;
         --short)          SHORT=true; shift ;;
+        --save_at_step)   SAVE_AT_STEP="$2"; shift 2 ;;
+        --resume)         RESUME_FROM="$2"; shift 2 ;;
         --dry-run)        DRY_RUN=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -137,7 +141,8 @@ for CFG in "${CONFIGS[@]}"; do
 
 IFS=':' read -r CURRENT_LR CURRENT_DTYPE CURRENT_SCHED <<< "$CFG"
 
-TAG="tamper_${MODEL_TAG}_${DATA}_lr${CURRENT_LR}_s${STEPS}_${CURRENT_SCHED}_${CURRENT_DTYPE}"
+TIMESTAMP=$(date +%m%d_%H%M)
+TAG="tamper_${MODEL_TAG}_${DATA}_lr${CURRENT_LR}_s${STEPS}_${CURRENT_SCHED}_${CURRENT_DTYPE}_${TIMESTAMP}"
 if [[ "$LORA" -gt 0 ]]; then
     TAG="${TAG}_lora${LORA}_${LORA_TARGET}"
 fi
@@ -172,6 +177,14 @@ TRAIN_CMD="torchrun --nproc_per_node=4 -m scripts.run_tamper_attack_with_plot \
 
 if $EVAL_MMLU; then
     TRAIN_CMD="$TRAIN_CMD --eval_mmlu"
+fi
+
+if [[ "$SAVE_AT_STEP" -gt 0 ]]; then
+    TRAIN_CMD="$TRAIN_CMD --save_at_step=${SAVE_AT_STEP}"
+fi
+
+if [[ -n "$RESUME_FROM" ]]; then
+    TRAIN_CMD="$TRAIN_CMD --resume_from_checkpoint=${RESUME_FROM}"
 fi
 
 # ── generate sbatch script ──
